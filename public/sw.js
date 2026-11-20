@@ -1,7 +1,6 @@
-const CACHE_NAME = 'salespredicter-v1';
+const CACHE_NAME = 'salespredicter-v2';
 const STATIC_ASSETS = [
   '/',
-  '/manifest.webmanifest',
   '/icon-192.png',
   '/icon-512.png'
 ];
@@ -9,7 +8,9 @@ const STATIC_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
+      return cache.addAll(STATIC_ASSETS).catch((err) => {
+        console.warn('PWA static asset precache warning:', err);
+      });
     })
   );
   self.skipWaiting();
@@ -33,50 +34,32 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Audio files: Cache-first fallback for offline kitchen replay
-  if (url.pathname.startsWith('/api/audio')) {
-    event.respondWith(
-      caches.open(CACHE_NAME).then(async (cache) => {
-        const cached = await cache.match(event.request);
-        if (cached) return cached;
-
-        try {
-          const response = await fetch(event.request);
-          if (response.status === 200) {
-            cache.put(event.request, response.clone());
-          }
-          return response;
-        } catch {
-          return cached || new Response('Offline audio unavailable', { status: 503 });
-        }
-      })
-    );
+  // 1. Never intercept non-GET requests (POST, PUT, DELETE) - pass directly to network
+  if (event.request.method !== 'GET') {
     return;
   }
 
-  // API endpoints: Network-first with fallback
+  // 2. Never intercept Next.js API endpoints - let them run on the server via network
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(event.request).catch(() => caches.match(event.request))
-    );
     return;
   }
 
-  // Stale-while-revalidate for static pages
+  // 3. Static assets & HTML pages: Stale-while-revalidate
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const fetchPromise = fetch(event.request)
         .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
+          if (networkResponse && networkResponse.status === 200 && event.request.method === 'GET') {
+            const responseClone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, networkResponse.clone());
+              cache.put(event.request, responseClone);
             });
           }
           return networkResponse;
         })
         .catch(() => cached);
+
       return cached || fetchPromise;
     })
   );
 });
-

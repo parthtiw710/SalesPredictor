@@ -62,7 +62,7 @@ export async function fetchCachedBulletin(
 export async function fetchBulletinHistory(
   kitchenId: string,
   outletId: string,
-  limit: number = 20
+  limit: number = 10
 ): Promise<BulletinCacheRecord[]> {
   const sql = `
     SELECT 
@@ -93,39 +93,29 @@ export async function fetchBulletinHistory(
 }
 
 /**
- * Saves synthesized audio and translated script to BigQuery cache using standard SQL INSERT.
- * Instantaneous, with zero streaming buffer propagation delay.
+ * Saves synthesized audio and translated script to BigQuery cache using tabledata.insertAll streaming.
+ * Pure JSON, immune to SQL string injection or Devanagari character escaping issues.
  */
 export async function saveBulletinCache(record: BulletinCacheRecord): Promise<boolean> {
-  const escapedText = record.bulletin_text.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  const escapedReason = record.dynamic_reason
-    ? `'${record.dynamic_reason.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
-    : 'NULL';
-  const escapedItems = record.items_json.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-
-  const sql = `
-    INSERT INTO \`${PROJECT_ID}.${DATASET_ID}.daily_bulletin_cache\`
-    (forecast_date, kitchen_id, outlet_id, meal_slot, lang_code, voice_name, bulletin_text, audio_url, dynamic_reason, items_json, created_at)
-    VALUES (
-      DATE('${record.forecast_date}'),
-      '${record.kitchen_id}',
-      '${record.outlet_id}',
-      '${record.meal_slot}',
-      '${record.lang_code}',
-      '${record.voice_name}',
-      '${escapedText}',
-      '${record.audio_url}',
-      ${escapedReason},
-      '${escapedItems}',
-      CURRENT_TIMESTAMP()
-    );
-  `;
-
   try {
-    await queryBigQuery(sql);
+    await streamInsertBigQuery('daily_bulletin_cache', [
+      {
+        forecast_date: record.forecast_date,
+        kitchen_id: record.kitchen_id,
+        outlet_id: record.outlet_id,
+        meal_slot: record.meal_slot,
+        lang_code: record.lang_code,
+        voice_name: record.voice_name,
+        bulletin_text: record.bulletin_text,
+        audio_url: record.audio_url,
+        dynamic_reason: record.dynamic_reason || null,
+        items_json: record.items_json,
+        created_at: record.created_at || new Date().toISOString()
+      }
+    ]);
     return true;
   } catch (e) {
-    console.warn('BigQuery SQL cache insert warning:', e);
+    console.warn('BigQuery streaming cache insert warning:', e);
     return false;
   }
 }

@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'SalesPredicter | Spoken Kitchen Dispatch & Ingestion OS',
+  title: 'SalesPredicter | Spoken Kitchen Intelligence & Demand Forecasting OS',
   description:
-    'Autonomous Multi-Language Spoken Kitchen Bulletin & Ingestion OS for Indian Cloud Kitchens & Outlets. Powered by BigQuery TimesFM 3.0 & Cloud TTS.',
+    'Autonomous Multi-Language Spoken Kitchen Bulletin & Procurement OS for Indian Cloud Kitchens & Outlets.',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
@@ -33,6 +33,19 @@ export default function RootLayout({
       </head>
       <body className="h-full w-full overflow-hidden flex flex-col font-sans bg-[#FFFDF7]">
         {children}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js').catch(function(err) {
+                    console.warn('SW registration warning:', err);
+                  });
+                });
+              }
+            `
+          }}
+        />
       </body>
     </html>
   );

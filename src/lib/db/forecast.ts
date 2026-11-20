@@ -19,6 +19,8 @@ export async function fetchTimesFMForecast(
   outletId: string,
   mealSlot: string
 ): Promise<ForecastItem[]> {
+  const slot = (mealSlot || 'lunch').toLowerCase();
+
   const timesfmSql = `
     SELECT 
       meal_slot,
@@ -43,7 +45,7 @@ export async function fetchTimesFMForecast(
         FROM \`${PROJECT_ID}.${DATASET_ID}.sales_feature_store\`
         WHERE kitchen_id = '${kitchenId}'
           AND outlet_id = '${outletId}'
-          AND meal_slot = '${mealSlot}'
+          AND meal_slot = '${slot}'
       ),
       timestamp_col => 'sale_timestamp',
       model => 'TimesFM 3.0',
@@ -64,23 +66,24 @@ export async function fetchTimesFMForecast(
     console.warn('TimesFM 3.0 query fallback to rolling feature view:', err);
   }
 
-  // Fallback to feature store view
+  // Fallback: Rolling aggregate strictly from BigQuery sales_feature_store
   const fallbackSql = `
     SELECT 
       meal_slot,
       item_name,
       unit,
-      predicted_qty,
-      lower_bound_qty,
-      upper_bound_qty
-    FROM \`${PROJECT_ID}.${DATASET_ID}.demand_forecaster\`
+      ROUND(AVG(CAST(quantity_sold AS FLOAT64) * base_event_demand_multiplier), 0) AS predicted_qty,
+      ROUND(MIN(CAST(quantity_sold AS FLOAT64)), 0) AS lower_bound_qty,
+      ROUND(MAX(CAST(quantity_sold AS FLOAT64) * 1.2), 0) AS upper_bound_qty
+    FROM \`${PROJECT_ID}.${DATASET_ID}.sales_feature_store\`
     WHERE kitchen_id = '${kitchenId}'
       AND outlet_id = '${outletId}'
-      AND meal_slot = '${mealSlot}';
+      AND meal_slot = '${slot}'
+    GROUP BY meal_slot, item_name, unit
+    LIMIT 8;
   `;
-
-  return queryBigQuery<ForecastItem>(fallbackSql);
+  const rollingItems = await queryBigQuery<ForecastItem>(fallbackSql);
+  return rollingItems || [];
 }
 
-// Backwards-compatible alias for existing imports
 export const fetchArimaForecast = fetchTimesFMForecast;

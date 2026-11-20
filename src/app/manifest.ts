@@ -2,14 +2,14 @@ import { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'SalesPredicter - Autonomous Kitchen Voice Bulletin & Ingestion OS',
+    name: 'SalesPredicter - Kitchen Voice Bulletin & Ingestion OS',
     short_name: 'SalesPredicter',
     description:
-      'Autonomous Multi-Language Spoken Kitchen Bulletin & Ingestion OS for Indian Cloud Kitchens & Outlets. Powered by TimesFM 3.0 & Cloud TTS.',
+      'Autonomous Multi-Language Spoken Kitchen Bulletin & Procurement OS for Indian Cloud Kitchens & Outlets.',
     start_url: '/',
     display: 'standalone',
-    background_color: '#090d16',
-    theme_color: '#090d16',
+    background_color: '#FFDE43',
+    theme_color: '#FFDE43',
     orientation: 'portrait-primary',
     icons: [
       {

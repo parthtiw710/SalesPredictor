@@ -16,8 +16,18 @@ import {
   Globe2,
   UtensilsCrossed,
   X,
-  ScanLine
+  Plus,
+  Trash2,
+  ScanLine,
+  RotateCcw,
+  Clock
 } from 'lucide-react';
+import {
+  SUPPORTED_LANGUAGES,
+  getTranslation,
+  getLocalizedItemName,
+  getLocalizedUnit
+} from '@/lib/i18n';
 
 export interface ForecastItem {
   meal_slot?: string;
@@ -63,19 +73,33 @@ export interface OutletRecord {
 }
 
 type ViewMode = 'dispatch' | 'history' | 'audio-details' | 'mandi-scan' | 'station';
-type LangCode = 'hi' | 'en' | 'bn' | 'mr';
+type ShiftType = 'breakfast' | 'lunch' | 'dinner';
+type LangCode = 'hi' | 'en' | 'bn' | 'mr' | 'gu' | 'ta' | 'te' | 'pa';
 
-const LANGUAGE_LABELS: Record<LangCode, { flag: string; label: string }> = {
-  hi: { flag: '🇮🇳', label: 'हिन्दी (Hindi)' },
-  en: { flag: '🇬🇧', label: 'English' },
-  bn: { flag: '🇮🇳', label: 'বাংলা (Bengali)' },
-  mr: { flag: '🇮🇳', label: 'मराठी (Marathi)' }
+const LANGUAGE_LABELS: Record<LangCode, { flag: string; label: string; native: string }> = {
+  hi: { flag: '🇮🇳', label: 'Hindi', native: 'हिन्दी' },
+  en: { flag: '🇮🇳', label: 'English', native: 'English (India)' },
+  bn: { flag: '🇮🇳', label: 'Bengali', native: 'বাংলা' },
+  mr: { flag: '🇮🇳', label: 'Marathi', native: 'मराठी' },
+  gu: { flag: '🇮🇳', label: 'Gujarati', native: 'ગુજરાતી' },
+  ta: { flag: '🇮🇳', label: 'Tamil', native: 'தமிழ்' },
+  te: { flag: '🇮🇳', label: 'Telugu', native: 'తెలుగు' },
+  pa: { flag: '🇮🇳', label: 'Punjabi', native: 'ਪੰਜਾਬੀ' }
+};
+
+// Auto-detect shift based on time of day
+const getAutoShift = (): ShiftType => {
+  const hour = new Date().getHours();
+  if (hour < 11) return 'breakfast';
+  if (hour < 16) return 'lunch';
+  return 'dinner';
 };
 
 export default function HomePage() {
   const [currentView, setCurrentView] = useState<ViewMode>('dispatch');
+  const [currentShift, setCurrentShift] = useState<ShiftType>(getAutoShift());
 
-  // Real Outlets from BigQuery
+  // Outlets
   const [outlets, setOutlets] = useState<OutletRecord[]>([]);
   const [currentKitchenId, setCurrentKitchenId] = useState('kitchen_a');
   const [currentOutletId, setCurrentOutletId] = useState('outlet_aa');
@@ -103,21 +127,22 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, []);
 
-  // Live BigQuery Data States
-  const [spokenScript, setSpokenScript] = useState<string>('Loading BigQuery bulletin...');
+  // Live Prep & Dispatch Data States
+  const [spokenScript, setSpokenScript] = useState<string>('');
   const [activeAudioSrc, setActiveAudioSrc] = useState<string>('');
   const [forecastItems, setForecastItems] = useState<ForecastItem[]>([]);
   const [fullShiftHistory, setFullShiftHistory] = useState<ShiftHistoryEntry[]>([]);
   const [mandiItems, setMandiItems] = useState<IngestItem[]>([]);
 
-  // Loading States
+  // Loading & Error States
   const [isBulletinLoading, setIsBulletinLoading] = useState(true);
+  const [bulletinError, setBulletinError] = useState<string | null>(null);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   // Audio Playback State
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
-  const [audioDuration, setAudioDuration] = useState(12);
+  const [audioDuration, setAudioDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingShiftId, setPlayingShiftId] = useState<string | null>(null);
 
@@ -135,7 +160,10 @@ export default function HomePage() {
   const [isStreamingToBq, setIsStreamingToBq] = useState(false);
   const [mandiSuccessToast, setMandiSuccessToast] = useState<string | null>(null);
 
-  // 1. Fetch Outlets from BigQuery (/api/kitchens)
+  // Translation helper wrapper
+  const t = useCallback((key: string) => getTranslation(key, currentLang), [currentLang]);
+
+  // 1. Fetch Outlets from Backend (/api/kitchens)
   useEffect(() => {
     async function loadKitchens() {
       try {
@@ -144,9 +172,10 @@ export default function HomePage() {
         if (data.success && data.raw_outlets?.length > 0) {
           setOutlets(data.raw_outlets);
 
-          // Check saved station from localStorage
           const savedCode = localStorage.getItem('salespredicter_station_code') || 'KITCH-AA';
-          const match = data.raw_outlets.find((o: OutletRecord) => o.join_code === savedCode) || data.raw_outlets[0];
+          const match =
+            data.raw_outlets.find((o: OutletRecord) => o.join_code === savedCode) ||
+            data.raw_outlets[0];
 
           if (match) {
             setStationCode(match.join_code);
@@ -156,39 +185,54 @@ export default function HomePage() {
           }
         }
       } catch (err) {
-        console.error('Failed to load kitchens from BigQuery:', err);
+        console.warn('Failed to load kitchens, using defaults:', err);
       }
     }
     loadKitchens();
   }, []);
 
-  // 2. Fetch Live Bulletin & Prep Targets from BigQuery (/api/bulletin)
-  const fetchLiveBulletin = useCallback(async () => {
-    setIsBulletinLoading(true);
-    try {
-      const url = `/api/bulletin?kitchen_id=${currentKitchenId}&outlet_id=${currentOutletId}&shift=lunch&lang=${currentLang}`;
-      const res = await fetch(url);
-      const data = await res.json();
+  // 2. Fetch Live Bulletin & Prep Targets (/api/bulletin)
+  const fetchLiveBulletin = useCallback(
+    async (
+      kid = currentKitchenId,
+      oid = currentOutletId,
+      shift = currentShift,
+      lang = currentLang
+    ) => {
+      setIsBulletinLoading(true);
+      setBulletinError(null);
+      try {
+        const url = `/api/bulletin?kitchen_id=${kid}&outlet_id=${oid}&shift=${shift}&lang=${lang}`;
+        const res = await fetch(url);
+        const data = await res.json();
 
-      if (data.success) {
-        setSpokenScript(data.bulletinText || '');
-        setActiveAudioSrc(data.audioUrl || '');
-        if (Array.isArray(data.items) && data.items.length > 0) {
-          setForecastItems(data.items);
+        if (data.success) {
+          setSpokenScript(data.bulletinText || '');
+          setActiveAudioSrc(data.audioUrl || '');
+          if (Array.isArray(data.items) && data.items.length > 0) {
+            setForecastItems(data.items);
+          }
+          if (audioRef.current && data.audioUrl) {
+            audioRef.current.load();
+          }
+        } else {
+          setBulletinError('Could not load targets. Tap to retry.');
         }
+      } catch (err) {
+        console.warn('Failed to fetch bulletin:', err);
+        setBulletinError('Network error. Tap to retry.');
+      } finally {
+        setIsBulletinLoading(false);
       }
-    } catch (err) {
-      console.error('Failed to fetch bulletin from BigQuery:', err);
-    } finally {
-      setIsBulletinLoading(false);
-    }
-  }, [currentKitchenId, currentOutletId, currentLang]);
+    },
+    [currentKitchenId, currentOutletId, currentShift, currentLang]
+  );
 
   useEffect(() => {
-    fetchLiveBulletin();
-  }, [fetchLiveBulletin]);
+    fetchLiveBulletin(currentKitchenId, currentOutletId, currentShift, currentLang);
+  }, [fetchLiveBulletin, currentKitchenId, currentOutletId, currentShift, currentLang]);
 
-  // 3. Fetch Full Shift History from BigQuery (/api/history)
+  // 3. Fetch Full Shift History (/api/history)
   const fetchShiftHistory = useCallback(async () => {
     setIsHistoryLoading(true);
     try {
@@ -200,7 +244,7 @@ export default function HomePage() {
         setFullShiftHistory(data.shifts);
       }
     } catch (err) {
-      console.error('Failed to fetch history from BigQuery:', err);
+      console.warn('Failed to fetch history:', err);
     } finally {
       setIsHistoryLoading(false);
     }
@@ -210,18 +254,17 @@ export default function HomePage() {
     fetchShiftHistory();
   }, [fetchShiftHistory]);
 
-  // 4. Fetch Recent Ingest Items from BigQuery (/api/ingest)
+  // 4. Fetch Recent Ingest Items (/api/ingest)
   const fetchMandiPurchases = useCallback(async () => {
     try {
       const url = `/api/ingest?kitchen_id=${currentKitchenId}&outlet_id=${currentOutletId}`;
       const res = await fetch(url);
       const data = await res.json();
-
       if (data.success && Array.isArray(data.items) && data.items.length > 0) {
         setMandiItems(data.items);
       }
     } catch (err) {
-      console.error('Failed to fetch mandi items from BigQuery:', err);
+      console.warn('Failed to fetch ingest items:', err);
     }
   }, [currentKitchenId, currentOutletId]);
 
@@ -229,59 +272,27 @@ export default function HomePage() {
     fetchMandiPurchases();
   }, [fetchMandiPurchases]);
 
-  // Handle Station Switching from Dropdown or Code
-  const handleSelectOutlet = (joinCode: string) => {
-    const found = outlets.find((o) => o.join_code === joinCode);
-    if (found) {
-      setStationCode(found.join_code);
-      setStationName(found.outlet_name);
-      setCurrentKitchenId(found.kitchen_id);
-      setCurrentOutletId(found.outlet_id);
-      try {
-        localStorage.setItem('salespredicter_station_code', found.join_code);
-      } catch {}
-      setCodeSuccessToast(`Joined ${found.outlet_name}`);
-      setTimeout(() => setCodeSuccessToast(null), 1800);
-    }
-  };
-
-  const handleJoinByInputCode = (e: React.FormEvent) => {
-    e.preventDefault();
-    const clean = codeInput.trim().toUpperCase();
-    if (!clean) return;
-
-    const found = outlets.find(
-      (o) => o.join_code === clean || o.join_code.replace('-', '') === clean.replace('-', '')
-    );
-
-    if (found) {
-      handleSelectOutlet(found.join_code);
-      setCodeInput('');
-      setCurrentView('dispatch');
-    } else {
-      setCodeSuccessToast('Invalid station code. Try KITCH-AA or KITCH-BB');
-      setTimeout(() => setCodeSuccessToast(null), 2500);
-    }
-  };
-
-  const handleCopyCode = () => {
-    navigator.clipboard?.writeText(stationCode);
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
-  };
-
-  // Audio Playback Handlers
+  // Handle Audio Playback
   const togglePlayMainAudio = (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (!audioRef.current || !activeAudioSrc) return;
+    e?.stopPropagation();
+    if (!audioRef.current) return;
 
-    if (isPlaying && playingShiftId === null) {
+    if (playingShiftId !== null) {
+      audioRef.current.src = activeAudioSrc;
+      setPlayingShiftId(null);
+    }
+
+    if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
-      setPlayingShiftId(null);
-      audioRef.current.play().catch(() => {});
-      setIsPlaying(true);
+      audioRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => {
+          console.warn('Audio playback error:', err);
+          setIsPlaying(false);
+        });
     }
   };
 
@@ -289,17 +300,23 @@ export default function HomePage() {
     e.stopPropagation();
     if (!audioRef.current) return;
 
-    if (activeAudioSrc === shift.audio_url && isPlaying && playingShiftId === shift.id) {
+    if (playingShiftId === shift.id && isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
-      setPlayingShiftId(null);
-    } else {
-      setActiveAudioSrc(shift.audio_url);
+      return;
+    }
+
+    const src = shift.audio_url || activeAudioSrc;
+    if (src) {
+      audioRef.current.src = src;
       setPlayingShiftId(shift.id);
-      setTimeout(() => {
-        audioRef.current?.play().catch(() => {});
-        setIsPlaying(true);
-      }, 50);
+      audioRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => {
+          console.warn('Audio play error:', err);
+          setIsPlaying(false);
+        });
     }
   };
 
@@ -310,8 +327,8 @@ export default function HomePage() {
   };
 
   const handleAudioLoadedMetadata = () => {
-    if (audioRef.current && audioRef.current.duration) {
-      setAudioDuration(audioRef.current.duration);
+    if (audioRef.current) {
+      setAudioDuration(audioRef.current.duration || 0);
     }
   };
 
@@ -321,32 +338,49 @@ export default function HomePage() {
     setPlayingShiftId(null);
   };
 
-  // =========================================================================
-  // 📸 REAL CAMERA VIEWFINDER & OCR IMPLEMENTATION
-  // =========================================================================
+  // Station Join Code Actions
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(stationCode);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleSwitchStation = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = codeInput.trim().toUpperCase();
+    if (!clean) return;
+
+    const match = outlets.find((o) => o.join_code === clean);
+    if (match) {
+      setStationCode(match.join_code);
+      setStationName(match.outlet_name);
+      setCurrentKitchenId(match.kitchen_id);
+      setCurrentOutletId(match.outlet_id);
+      localStorage.setItem('salespredicter_station_code', match.join_code);
+      setCodeSuccessToast(`Connected to ${match.outlet_name}!`);
+      setCodeInput('');
+      setTimeout(() => {
+        setCodeSuccessToast(null);
+        setCurrentView('dispatch');
+      }, 1200);
+    } else {
+      setCodeSuccessToast('Invalid station join code');
+      setTimeout(() => setCodeSuccessToast(null), 2500);
+    }
+  };
+
+  // Camera Management
   const startLiveCamera = async () => {
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        // Fallback to native capture input
-        cameraInputRef.current?.click();
-        return;
-      }
-
       setIsCameraOpen(true);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
       });
       streamRef.current = stream;
-
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      }, 100);
-    } catch (err) {
-      console.warn('Live camera permission error, falling back to capture input:', err);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch {
       setIsCameraOpen(false);
       cameraInputRef.current?.click();
     }
@@ -360,81 +394,77 @@ export default function HomePage() {
     setIsCameraOpen(false);
   };
 
-  // Clean up camera stream if component unmounts or view switches
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
-
   const capturePhotoFromStream = () => {
     if (!videoRef.current) return;
-    const video = videoRef.current;
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
+    ctx.drawImage(videoRef.current, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    setCapturedPreview(dataUrl);
     stopLiveCamera();
-
-    canvas.toBlob(
-      async (blob) => {
-        if (!blob) return;
-        const file = new File([blob], 'mandi_bill.jpg', { type: 'image/jpeg' });
-        const previewUrl = URL.createObjectURL(file);
-        setCapturedPreview(previewUrl);
-        setIsOcrLoading(true);
-
-        try {
-          const formData = new FormData();
-          formData.append('file', file);
-          const res = await fetch('/api/ocr', { method: 'POST', body: formData });
-          const data = await res.json();
-          if (data.success && data.data?.items?.length) {
-            setMandiItems(data.data.items);
-          }
-        } catch (err) {
-          console.warn('OCR error:', err);
-        } finally {
-          setIsOcrLoading(false);
-        }
-      },
-      'image/jpeg',
-      0.9
-    );
+    handleOcrScan(dataUrl);
   };
 
-  // Native input fallback
-  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      setCapturedPreview(result);
+      handleOcrScan(result);
+    };
+    reader.readAsDataURL(file);
+  };
 
-    const previewUrl = URL.createObjectURL(file);
-    setCapturedPreview(previewUrl);
+  const handleOcrScan = async (base64Image: string) => {
     setIsOcrLoading(true);
-
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
       const res = await fetch('/api/ocr', {
         method: 'POST',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: base64Image })
       });
       const data = await res.json();
-
-      if (data.success && data.data?.items?.length) {
-        setMandiItems(data.data.items);
+      if (data.success && Array.isArray(data.items)) {
+        setMandiItems(data.items);
       }
     } catch (err) {
       console.warn('OCR error:', err);
     } finally {
       setIsOcrLoading(false);
     }
+  };
+
+  const handleUpdateMandiItem = (
+    index: number,
+    field: keyof IngestItem,
+    value: string | number
+  ) => {
+    setMandiItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== index) return item;
+        const updated = { ...item, [field]: value };
+        const qty = Number(updated.quantity) || 0;
+        const rate = Number(updated.rate) || 0;
+        updated.row_total = qty * rate;
+        return updated;
+      })
+    );
+  };
+
+  const handleDeleteMandiItem = (index: number) => {
+    setMandiItems((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleAddMandiItem = () => {
+    setMandiItems((prev) => [
+      ...prev,
+      { item_name: 'New Item', quantity: 5, unit: 'kg', rate: 40, row_total: 200 }
+    ]);
   };
 
   const mandiGrandTotal = mandiItems.reduce((acc, it) => {
@@ -452,19 +482,19 @@ export default function HomePage() {
           kitchen_id: currentKitchenId,
           outlet_id: currentOutletId,
           source_type: 'GEMINI_OCR',
-          vendor_name: 'Jaipur Muhana Mandi Vendor',
+          vendor_name: 'Mandi Vendor Delivery',
           items: mandiItems
         })
       });
       const data = await res.json();
       if (data.success) {
-        setMandiSuccessToast(`Saved ${data.inserted_rows || mandiItems.length} items to BigQuery daily_raw_inputs!`);
+        setMandiSuccessToast(t('saved_success'));
         fetchMandiPurchases();
       } else {
-        setMandiSuccessToast('Saved to BigQuery buffer!');
+        setMandiSuccessToast(t('saved_success'));
       }
     } catch {
-      setMandiSuccessToast('Saved to BigQuery buffer!');
+      setMandiSuccessToast(t('saved_success'));
     } finally {
       setIsStreamingToBq(false);
       setTimeout(() => {
@@ -490,8 +520,8 @@ export default function HomePage() {
         onEnded={handleAudioEnded}
       />
 
-      {/* Main Shell: Two-Tone Mobile Frame */}
-      <main className="w-full max-w-[420px] h-full sm:h-[844px] sm:max-h-[844px] sm:rounded-[36px] flex flex-col bg-[#FFDE43] relative shadow-2xl overflow-hidden">
+      {/* Main Shell: Two-Tone Mobile Frame (h-dvh prevents cutoff on laptop screens) */}
+      <main className="w-full max-w-[420px] h-dvh sm:h-[min(844px,100dvh)] sm:max-h-[900px] sm:rounded-[36px] flex flex-col bg-[#FFDE43] relative shadow-2xl overflow-hidden">
         {/* Subtle Watermark Pattern Background */}
         <div
           className="absolute inset-0 pointer-events-none opacity-[0.035] bg-repeat mix-blend-multiply z-0"
@@ -502,73 +532,92 @@ export default function HomePage() {
         />
 
         {/* ========================================================================= */}
-        {/* 1. DISPATCH VIEW (HOME SCREEN: Live BigQuery Data) */}
+        {/* 📱 PAGE 1: TODAY'S PREP & AUDIO DISPATCH (आज की तैयारी व ऑडियो बुलेटिन) */}
         {/* ========================================================================= */}
         {currentView === 'dispatch' && (
           <div className="flex-1 flex flex-col overflow-hidden relative z-10">
             {/* 🟡 TOP HALF: Solid Yellow Zone */}
-            <div className="shrink-0 bg-[#FFDE43] px-5 pt-6 pb-4 space-y-3.5">
+            <div className="shrink-0 bg-[#FFDE43] px-5 pt-5 pb-3 space-y-3">
               {/* Header Row: Station Title + Shift Time + Chef Avatar */}
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-[22px] font-black text-[#261F0F] tracking-tight leading-tight">
+                  <h1 className="text-[21px] font-black text-[#261F0F] tracking-tight leading-tight">
                     {stationName}
                   </h1>
-                  <p className="text-[13px] font-semibold text-[#5A471C] mt-0.5">
-                    Active Shift: Lunch {liveTime && `(${liveTime})`}
+                  <p className="text-[12px] font-semibold text-[#5A471C] mt-0.5">
+                    {stationCode} · {liveTime}
                   </p>
                 </div>
 
-                {/* Chef / Station Avatar */}
+                {/* Chef / Station Avatar Button */}
                 <button
                   onClick={() => setCurrentView('station')}
-                  className="w-11 h-11 rounded-2xl bg-amber-200/90 border border-amber-300 flex items-center justify-center shadow-sm active:scale-95 transition"
-                  title="Station Settings"
+                  className="w-10 h-10 rounded-2xl bg-amber-200/90 border border-amber-300 flex items-center justify-center shadow-sm active:scale-95 transition"
+                  title={t('station_details')}
                 >
                   <UtensilsCrossed className="w-5 h-5 text-[#261F0F]" />
                 </button>
               </div>
 
-              {/* Language Selector Dropdown */}
-              <div className="flex items-center gap-2 bg-[#FFFDF7] rounded-full px-3.5 py-1.5 shadow-sm border border-[#F0E6C8]">
-                <Globe2 className="w-4 h-4 text-[#8C7540] shrink-0" />
-                <span className="text-[11px] font-bold text-[#8C7540] uppercase tracking-wider shrink-0">
-                  Language:
-                </span>
-                <select
-                  value={currentLang}
-                  onChange={(e) => setCurrentLang(e.target.value as LangCode)}
-                  className="bg-transparent text-xs font-bold text-[#261F0F] focus:outline-none cursor-pointer flex-1"
-                >
-                  {(Object.keys(LANGUAGE_LABELS) as LangCode[]).map((code) => (
-                    <option key={code} value={code} className="bg-[#FFFDF7] text-[#261F0F]">
-                      {LANGUAGE_LABELS[code].flag} {LANGUAGE_LABELS[code].label}
-                    </option>
+              {/* Shift Switcher & Language Controls */}
+              <div className="flex items-center gap-1.5">
+                {/* Breakfast / Lunch / Dinner Pill Switcher (Compact for Mobile) */}
+                <div className="flex-1 min-w-0 flex bg-[#FFFDF7] rounded-full p-0.5 shadow-sm border border-[#F0E6C8]">
+                  {(['breakfast', 'lunch', 'dinner'] as ShiftType[]).map((shift) => (
+                    <button
+                      key={shift}
+                      onClick={() => setCurrentShift(shift)}
+                      className={`flex-1 py-1 px-1 text-[10px] font-black rounded-full capitalize transition text-center truncate ${
+                        currentShift === shift
+                          ? 'bg-[#261F0F] text-[#FFDE43] shadow-sm'
+                          : 'text-[#8C7540] hover:text-[#261F0F]'
+                      }`}
+                    >
+                      {t(`shift_${shift}`)}
+                    </button>
                   ))}
-                </select>
+                </div>
+
+                {/* Language Selector Dropdown (8 Indian Languages - Touch Optimized) */}
+                <div className="shrink-0 flex items-center gap-1 bg-[#FFFDF7] rounded-full px-2.5 py-1 shadow-sm border border-[#F0E6C8]">
+                  <Globe2 className="w-3.5 h-3.5 text-[#8C7540] shrink-0 pointer-events-none" />
+                  <select
+                    value={currentLang}
+                    onChange={(e) => setCurrentLang(e.target.value as LangCode)}
+                    className="bg-transparent text-[11px] font-bold text-[#261F0F] focus:outline-none cursor-pointer pr-0.5"
+                  >
+                    {(Object.keys(LANGUAGE_LABELS) as LangCode[]).map((code) => (
+                      <option key={code} value={code} className="bg-[#FFFDF7] text-[#261F0F]">
+                        {LANGUAGE_LABELS[code].native}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              {/* Top White Card: BigQuery Live Prep Targets */}
-              <div className="bg-[#FFFDF7] rounded-[24px] p-4 shadow-sm border border-[#F0E6C8]">
-                <div className="flex items-center justify-between mb-2.5">
+              {/* Top White Card: Live Prep Targets */}
+              <div className="bg-[#FFFDF7] rounded-[22px] p-3.5 shadow-sm border border-[#F0E6C8]">
+                <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-[#261F0F] uppercase tracking-wide">
-                    Today&apos;s Prep Targets
+                    {t('prep_targets_title')}
                   </span>
                   <span className="text-[11px] font-semibold text-[#8C7540]">
-                    {forecastItems.length} Items from BigQuery
+                    {forecastItems.length} {t('prep_items_today')}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {forecastItems.map((item, idx) => (
                     <div
                       key={idx}
-                      className="bg-[#FAF6EC] rounded-xl px-2.5 py-2 border border-[#EFE5C6] flex items-center justify-between"
+                      className="bg-[#FAF6EC] rounded-xl px-2.5 py-1.5 border border-[#EFE5C6] flex items-center justify-between"
                     >
                       <div className="truncate pr-1">
                         <div className="text-[11px] font-bold text-[#261F0F] truncate">
-                          {item.item_name}
+                          {getLocalizedItemName(item.item_name, currentLang)}
                         </div>
-                        <div className="text-[10px] text-[#8C7540]">{item.unit}</div>
+                        <div className="text-[10px] text-[#8C7540]">
+                          {getLocalizedUnit(item.unit, currentLang)}
+                        </div>
                       </div>
                       <div className="text-sm font-black text-[#261F0F]">
                         {item.predicted_qty}
@@ -581,7 +630,7 @@ export default function HomePage() {
 
             {/* ⚪ BOTTOM HALF: Overlapping Curved Cream Sheet */}
             <div className="flex-1 bg-[#FFFDF7] rounded-t-[34px] shadow-[-4px_0_24px_rgba(0,0,0,0.06)] px-5 pt-4 pb-3 overflow-y-auto overscroll-contain space-y-4 -mt-2 relative z-20">
-              {/* Spoken Kitchen Audio Card (Live from BigQuery & GCS) */}
+              {/* Spoken Kitchen Audio Bulletin Card */}
               <div
                 onClick={() => setCurrentView('audio-details')}
                 className="bg-gradient-to-br from-[#FFDE43] to-[#F7C610] rounded-[24px] p-4 shadow-sm border border-[#F0D138] cursor-pointer active:scale-[0.99] transition"
@@ -591,7 +640,7 @@ export default function HomePage() {
                   <button
                     onClick={togglePlayMainAudio}
                     className="w-13 h-13 rounded-full bg-[#261F0F] text-[#FFDE43] flex items-center justify-center shadow-md shrink-0 active:scale-95 transition"
-                    title={isPlaying && playingShiftId === null ? 'Pause Dispatch' : 'Play Dispatch'}
+                    title={isPlaying && playingShiftId === null ? 'Pause' : 'Play'}
                   >
                     {isPlaying && playingShiftId === null ? (
                       <Pause className="w-6 h-6 fill-current" />
@@ -604,19 +653,25 @@ export default function HomePage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[11px] font-black text-[#261F0F] uppercase tracking-wider">
-                        Kitchen Audio Bulletin
+                        {t('audio_bulletin_title')}
                       </span>
                       <span className="text-[11px] font-mono text-[#57461E]">
-                        {isPlaying && playingShiftId === null
+                        {isPlaying && playingShiftId === null && audioDuration > 0
                           ? `${Math.floor(audioCurrentTime)}s / ${Math.floor(audioDuration)}s`
-                          : '12s dispatch'}
+                          : audioDuration > 0
+                          ? `${Math.floor(audioDuration)}s`
+                          : t('voice_dispatch')}
                       </span>
                     </div>
 
                     <p className="text-xs font-semibold text-[#261F0F] leading-snug line-clamp-3">
                       {isBulletinLoading ? (
                         <span className="flex items-center gap-1.5 text-xs text-[#57461E]">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading BigQuery speech...
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('generating_audio')}
+                        </span>
+                      ) : bulletinError ? (
+                        <span className="flex items-center gap-1.5 text-xs text-red-800">
+                          <RotateCcw className="w-3.5 h-3.5" /> {bulletinError}
                         </span>
                       ) : (
                         `"${spokenScript}"`
@@ -627,90 +682,51 @@ export default function HomePage() {
 
                 {/* Footer hint */}
                 <div className="mt-2.5 pt-2 border-t border-[#261F0F]/10 flex items-center justify-between text-[11px] font-bold text-[#261F0F]">
-                  <span>Tap to view full recipe &amp; shift details</span>
+                  <span>{t('tap_details')}</span>
                   <ChevronRight className="w-4 h-4" />
                 </div>
               </div>
 
-              {/* Past Predictions Section (Real BigQuery History) */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between px-1">
-                  <h2 className="text-sm font-black text-[#261F0F] tracking-tight">
-                    Past Predictions
-                  </h2>
-                  <button
-                    onClick={() => setCurrentView('history')}
-                    className="text-xs font-bold text-[#8C7540] hover:text-[#261F0F] flex items-center gap-0.5"
-                  >
-                    View All <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
+              {/* Dedicated Navigation Quick Card to Shift Records */}
+              <div
+                onClick={() => setCurrentView('history')}
+                className="bg-[#FAF6EC] rounded-[20px] p-3.5 border border-[#EFE5C6] flex items-center justify-between cursor-pointer active:scale-[0.99] transition shadow-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-200/80 flex items-center justify-center text-[#261F0F]">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black text-[#261F0F]">
+                      {t('shift_records_title')}
+                    </h3>
+                    <p className="text-[10px] text-[#8C7540]">
+                      {fullShiftHistory.length} {t('shift_records_title')}
+                    </p>
+                  </div>
                 </div>
-
-                {/* Shift History Cards */}
-                {isHistoryLoading ? (
-                  <div className="p-4 text-center text-xs text-[#8C7540] flex items-center justify-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" /> Loading past shifts from BigQuery...
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {fullShiftHistory.slice(0, 3).map((shift) => (
-                      <div
-                        key={shift.id}
-                        onClick={() => setCurrentView('history')}
-                        className="bg-[#FAF6EC] rounded-[18px] p-3.5 border border-[#EFE5C6] flex items-center justify-between gap-3 active:scale-[0.99] transition cursor-pointer"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-xs font-black text-[#261F0F]">
-                              {shift.shift_name}
-                            </span>
-                            <span className="text-[10px] font-mono text-[#8C7540]">
-                              {shift.time}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-[#57461E] truncate">
-                            {shift.summary}
-                          </div>
-                        </div>
-
-                        {/* Shift Audio Play Button */}
-                        <button
-                          onClick={(e) => playShiftAudio(shift, e)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition active:scale-90 ${
-                            isPlaying && playingShiftId === shift.id
-                              ? 'bg-[#261F0F] text-[#FFDE43]'
-                              : 'bg-[#FFDE43] text-[#261F0F]'
-                          }`}
-                          title="Play Shift Audio"
-                        >
-                          {isPlaying && playingShiftId === shift.id ? (
-                            <Pause className="w-3.5 h-3.5 fill-current" />
-                          ) : (
-                            <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                          )}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <ChevronRight className="w-4 h-4 text-[#8C7540]" />
               </div>
             </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* 2. HISTORY / FEED VIEW (NATIVE FULL SCREEN) */}
+        {/* 📋 PAGE 2: DEDICATED SHIFT RECORDS (शिफ्ट रिकॉर्ड्स - अलग पेज) */}
         {/* ========================================================================= */}
         {currentView === 'history' && (
           <div className="flex-1 flex flex-col bg-[#FFFDF7] z-10 overflow-hidden">
-            <header className="shrink-0 bg-[#FFDE43] px-5 pt-6 pb-4 rounded-b-[24px] shadow-sm flex items-center justify-between">
+            <header className="shrink-0 bg-[#FFDE43] px-5 pt-5 pb-3.5 rounded-b-[24px] shadow-sm flex items-center justify-between">
               <button
                 onClick={() => setCurrentView('dispatch')}
                 className="flex items-center gap-1 text-xs font-black text-[#261F0F] active:scale-95"
               >
-                <ChevronLeft className="w-4 h-4" /> Shift Feed
+                <ChevronLeft className="w-4 h-4" /> {t('back')}
               </button>
-              <span className="text-xs font-bold text-[#57461E]">{stationName}</span>
+              <h2 className="text-sm font-black text-[#261F0F]">
+                {t('shift_records_title')}
+              </h2>
+              <span className="text-xs font-bold text-[#57461E]">{stationCode}</span>
             </header>
 
             <div className="flex-1 px-5 py-4 overflow-y-auto space-y-3">
@@ -726,130 +742,75 @@ export default function HomePage() {
                         : 'bg-[#FAF6EC] text-[#8C7540] border border-[#EFE5C6]'
                     }`}
                   >
-                    {filter === 'all' ? 'All Shifts' : filter}
+                    {filter === 'all' ? t('filter_all') : t(`shift_${filter}`)}
                   </button>
                 ))}
               </div>
 
-              {/* Feed List from BigQuery */}
-              <div className="space-y-2.5">
-                {filteredShifts.map((shift) => (
-                  <div
-                    key={shift.id}
-                    className="bg-[#FAF6EC] rounded-[20px] p-4 border border-[#EFE5C6] space-y-2 shadow-sm"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-black text-[#261F0F]">
-                          {shift.shift_name}
-                        </h3>
-                        <p className="text-[11px] font-semibold text-[#8C7540]">
-                          {shift.date} · {shift.time}
-                        </p>
-                      </div>
-                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                        {shift.status}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-[#57461E] leading-relaxed">
-                      {shift.details}
-                    </p>
-
-                    <div className="pt-2 border-t border-[#E8DFC2] flex items-center justify-between">
-                      <button
-                        onClick={(e) => playShiftAudio(shift, e)}
-                        className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFDE43] text-[#261F0F] text-xs font-bold active:scale-95 transition"
-                      >
-                        {isPlaying && playingShiftId === shift.id ? (
-                          <>
-                            <Pause className="w-3.5 h-3.5 fill-current" /> Pause
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-3.5 h-3.5 fill-current" /> Play Audio
-                          </>
-                        )}
-                      </button>
-                      <span className="text-[10px] text-[#8C7540] font-mono">
-                        TimesFM BigQuery Forecast
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* 3. AUDIO DETAILS / BREAKDOWN VIEW */}
-        {/* ========================================================================= */}
-        {currentView === 'audio-details' && (
-          <div className="flex-1 flex flex-col bg-[#FFFDF7] z-10 overflow-hidden">
-            <header className="shrink-0 bg-[#FFDE43] px-5 pt-6 pb-4 rounded-b-[24px] shadow-sm flex items-center justify-between">
-              <button
-                onClick={() => setCurrentView('dispatch')}
-                className="flex items-center gap-1 text-xs font-black text-[#261F0F] active:scale-95"
-              >
-                <ChevronLeft className="w-4 h-4" /> Shift Breakdown
-              </button>
-              <span className="text-xs font-bold text-[#57461E]">{liveTime}</span>
-            </header>
-
-            <div className="flex-1 px-5 py-4 overflow-y-auto space-y-4">
-              {/* Full Spoken Transcript from BigQuery */}
-              <div className="bg-[#FAF6EC] rounded-[22px] p-4 border border-[#EFE5C6] space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-[#261F0F] uppercase tracking-wider">
-                    Full Spoken Transcript ({LANGUAGE_LABELS[currentLang].label})
-                  </span>
-                  <button
-                    onClick={togglePlayMainAudio}
-                    className="w-7 h-7 rounded-full bg-[#FFDE43] text-[#261F0F] flex items-center justify-center active:scale-90"
-                  >
-                    {isPlaying && playingShiftId === null ? (
-                      <Pause className="w-3.5 h-3.5 fill-current" />
-                    ) : (
-                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                    )}
-                  </button>
+              {/* History List */}
+              {isHistoryLoading ? (
+                <div className="p-8 text-center text-xs text-[#8C7540] flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> {t('loading_history')}
                 </div>
-                <p className="text-xs font-semibold text-[#261F0F] leading-relaxed">
-                  &quot;{spokenScript}&quot;
-                </p>
-              </div>
+              ) : filteredShifts.length === 0 ? (
+                <div className="p-8 text-center text-xs text-[#8C7540]">
+                  {t('no_history')}
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {filteredShifts.map((shift) => (
+                    <div
+                      key={shift.id}
+                      className="bg-[#FAF6EC] rounded-[20px] p-4 border border-[#EFE5C6] space-y-2 shadow-sm"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-black text-[#261F0F]">
+                            {t(`shift_${shift.meal_slot}`)}
+                          </h3>
+                          <p className="text-[11px] font-semibold text-[#8C7540]">
+                            {shift.date} · {shift.time}
+                          </p>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                          {shift.status}
+                        </span>
+                      </div>
 
-              {/* Item-wise Targets */}
-              <div className="space-y-2">
-                <h3 className="text-xs font-black text-[#261F0F] uppercase tracking-wider px-1">
-                  Preparation Targets
-                </h3>
-                {forecastItems.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="bg-[#FAF6EC] rounded-[18px] p-3 border border-[#EFE5C6] flex items-center justify-between"
-                  >
-                    <div>
-                      <div className="text-xs font-bold text-[#261F0F]">{item.item_name}</div>
-                      <div className="text-[10px] text-[#8C7540]">{item.unit}</div>
+                      <p className="text-xs text-[#57461E] leading-relaxed">
+                        {shift.details || shift.summary}
+                      </p>
+
+                      <div className="pt-2 border-t border-[#E8DFC2] flex items-center justify-between">
+                        <button
+                          onClick={(e) => playShiftAudio(shift, e)}
+                          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFDE43] text-[#261F0F] text-xs font-bold active:scale-95 transition"
+                        >
+                          {isPlaying && playingShiftId === shift.id ? (
+                            <>
+                              <Pause className="w-3.5 h-3.5 fill-current" /> {t('voice_dispatch')}
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-3.5 h-3.5 fill-current" /> {t('voice_dispatch')}
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-base font-black text-[#261F0F]">
-                      {item.predicted_qty} {item.unit}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* 4. MANDI SCAN VIEW (LIVE CAMERA & GEMINI OCR & BIGQUERY INGESTION) */}
+        {/* 📷 PAGE 3: DEDICATED MANDI BILL SCANNER (मंडी बिल स्कैनर - अलग पेज) */}
         {/* ========================================================================= */}
         {currentView === 'mandi-scan' && (
           <div className="flex-1 flex flex-col bg-[#FFFDF7] z-10 overflow-hidden">
-            <header className="shrink-0 bg-[#FFDE43] px-5 pt-6 pb-4 rounded-b-[24px] shadow-sm flex items-center justify-between">
+            <header className="shrink-0 bg-[#FFDE43] px-5 pt-5 pb-3.5 rounded-b-[24px] shadow-sm flex items-center justify-between">
               <button
                 onClick={() => {
                   stopLiveCamera();
@@ -857,9 +818,12 @@ export default function HomePage() {
                 }}
                 className="flex items-center gap-1 text-xs font-black text-[#261F0F] active:scale-95"
               >
-                <ChevronLeft className="w-4 h-4" /> Mandi Bill OCR
+                <ChevronLeft className="w-4 h-4" /> {t('back')}
               </button>
-              <span className="text-xs font-bold text-[#57461E]">{stationName}</span>
+              <h2 className="text-sm font-black text-[#261F0F]">
+                {t('mandi_scanner_title')}
+              </h2>
+              <span className="text-xs font-bold text-[#57461E]">{stationCode}</span>
             </header>
 
             <div className="flex-1 px-5 py-4 overflow-y-auto space-y-4">
@@ -880,7 +844,7 @@ export default function HomePage() {
                 onChange={handleImageFileSelect}
               />
 
-              {/* 📷 LIVE CAMERA VIEWFINDER MODAL / IN-VIEWPORT STREAM */}
+              {/* 📷 Live Viewfinder */}
               {isCameraOpen ? (
                 <div className="rounded-[24px] overflow-hidden bg-black relative border-2 border-amber-400 shadow-xl space-y-2">
                   <div className="relative w-full h-72 bg-black flex items-center justify-center">
@@ -892,19 +856,11 @@ export default function HomePage() {
                       className="w-full h-full object-cover"
                     />
 
-                    {/* Reticle / Bill Scanning Overlay Box */}
+                    {/* Bill Scanning Overlay Box */}
                     <div className="absolute inset-4 border-2 border-dashed border-[#FFDE43] rounded-2xl pointer-events-none flex flex-col items-center justify-between p-3 bg-[#261F0F]/10">
                       <span className="bg-[#261F0F]/80 text-[#FFDE43] text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <ScanLine className="w-3 h-3 animate-pulse" /> Align Mandi Slip inside frame
+                        <ScanLine className="w-3 h-3 animate-pulse" /> {t('mandi_subtitle')}
                       </span>
-                      <div className="w-full flex justify-between text-[#FFDE43] opacity-60 text-xs">
-                        <span>┌</span>
-                        <span>┐</span>
-                      </div>
-                      <div className="w-full flex justify-between text-[#FFDE43] opacity-60 text-xs">
-                        <span>└</span>
-                        <span>┘</span>
-                      </div>
                     </div>
 
                     {/* Close Camera Button */}
@@ -916,13 +872,13 @@ export default function HomePage() {
                     </button>
                   </div>
 
-                  {/* Shutter / Capture Button */}
+                  {/* Shutter Button */}
                   <div className="p-3 bg-[#1A150A] flex items-center justify-center gap-4">
                     <button
                       onClick={capturePhotoFromStream}
                       className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#FFDE43] text-[#261F0F] font-black text-xs shadow-lg active:scale-95 transition"
                     >
-                      <Camera className="w-4 h-4" /> Snap Mandi Bill
+                      <Camera className="w-4 h-4" /> {t('btn_camera')}
                     </button>
                   </div>
                 </div>
@@ -941,21 +897,21 @@ export default function HomePage() {
                           onClick={startLiveCamera}
                           className="px-3.5 py-1.5 rounded-full bg-[#FFDE43] text-xs font-bold text-[#261F0F] active:scale-95"
                         >
-                          Retake Photo
+                          {t('btn_camera')}
                         </button>
                       </div>
                     </div>
                   ) : (
                     <>
-                      <div className="w-13 h-13 rounded-full bg-[#FFDE43] text-[#261F0F] flex items-center justify-center mx-auto shadow-sm">
+                      <div className="w-12 h-12 rounded-full bg-[#FFDE43] text-[#261F0F] flex items-center justify-center mx-auto shadow-sm">
                         <Camera className="w-6 h-6" />
                       </div>
                       <div>
                         <h3 className="text-sm font-black text-[#261F0F]">
-                          Capture Mandi Parchi / Vendor Bill
+                          {t('mandi_scanner_title')}
                         </h3>
                         <p className="text-[11px] text-[#8C7540] mt-0.5">
-                          Point camera at handwritten Hindi or English vendor slips
+                          {t('mandi_subtitle')}
                         </p>
                       </div>
                       <div className="flex gap-2 justify-center pt-1">
@@ -963,13 +919,13 @@ export default function HomePage() {
                           onClick={startLiveCamera}
                           className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#261F0F] text-[#FFDE43] text-xs font-bold shadow-sm active:scale-95 transition"
                         >
-                          <Camera className="w-4 h-4" /> Open Camera
+                          <Camera className="w-4 h-4" /> {t('btn_camera')}
                         </button>
                         <button
                           onClick={() => galleryInputRef.current?.click()}
                           className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#FFFDF7] text-[#261F0F] border border-[#D8CEB4] text-xs font-bold active:scale-95 transition"
                         >
-                          <Upload className="w-4 h-4" /> Upload Slip
+                          <Upload className="w-4 h-4" /> {t('btn_upload')}
                         </button>
                       </div>
                     </>
@@ -981,32 +937,76 @@ export default function HomePage() {
               {isOcrLoading && (
                 <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-2.5 text-xs text-amber-900 font-semibold">
                   <Loader2 className="w-4 h-4 animate-spin text-amber-700" />
-                  Gemini 2.5 Flash scanning mandi slip items...
+                  {t('scanning_bill')}
                 </div>
               )}
 
-              {/* Verified Items List from BigQuery / OCR */}
+              {/* Verified Items List (EDITABLE) */}
               <div className="space-y-2">
-                <span className="text-xs font-black text-[#261F0F] uppercase tracking-wide">
-                  Verified Purchase Items ({mandiItems.length})
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-[#261F0F] uppercase tracking-wide">
+                    {t('prep_targets_title')} ({mandiItems.length})
+                  </span>
+                  <button
+                    onClick={handleAddMandiItem}
+                    className="flex items-center gap-1 text-[11px] font-bold text-[#8C7540] hover:text-[#261F0F]"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> {t('btn_add_item')}
+                  </button>
+                </div>
 
                 <div className="space-y-2">
                   {mandiItems.map((item, idx) => {
-                    const rowTot = Number(item.row_total) || Number(item.quantity) * Number(item.rate) || 0;
+                    const rowTot =
+                      Number(item.row_total) ||
+                      Number(item.quantity) * Number(item.rate) ||
+                      0;
                     return (
                       <div
                         key={idx}
-                        className="bg-[#FAF6EC] rounded-[18px] p-3 border border-[#EFE5C6] flex items-center justify-between"
+                        className="bg-[#FAF6EC] rounded-[18px] p-2.5 border border-[#EFE5C6] flex items-center justify-between gap-2"
                       >
-                        <div>
-                          <div className="text-xs font-bold text-[#261F0F]">{item.item_name}</div>
-                          <div className="text-[10px] text-[#8C7540]">
-                            {item.quantity} {item.unit || 'kg'} @ ₹{item.rate || 0}/{item.unit || 'kg'}
+                        <div className="flex-1 min-w-0">
+                          <input
+                            type="text"
+                            value={item.item_name}
+                            onChange={(e) =>
+                              handleUpdateMandiItem(idx, 'item_name', e.target.value)
+                            }
+                            className="w-full bg-transparent text-xs font-bold text-[#261F0F] focus:outline-none border-b border-transparent focus:border-[#D8CEB4]"
+                          />
+                          <div className="flex items-center gap-1 mt-1 text-[11px] text-[#8C7540]">
+                            <input
+                              type="number"
+                              value={item.quantity}
+                              onChange={(e) =>
+                                handleUpdateMandiItem(idx, 'quantity', e.target.value)
+                              }
+                              className="w-12 bg-white/70 border border-[#EFE5C6] rounded px-1 text-center font-bold text-[#261F0F]"
+                            />
+                            <span>{getLocalizedUnit(item.unit || 'kg', currentLang)} @ ₹</span>
+                            <input
+                              type="number"
+                              value={item.rate || 0}
+                              onChange={(e) =>
+                                handleUpdateMandiItem(idx, 'rate', e.target.value)
+                              }
+                              className="w-12 bg-white/70 border border-[#EFE5C6] rounded px-1 text-center font-bold text-[#261F0F]"
+                            />
                           </div>
                         </div>
-                        <div className="text-xs font-black text-[#261F0F]">
-                          ₹{rowTot.toLocaleString('en-IN')}
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-black text-[#261F0F]">
+                            ₹{rowTot.toLocaleString('en-IN')}
+                          </span>
+                          <button
+                            onClick={() => handleDeleteMandiItem(idx)}
+                            className="p-1 text-red-500 hover:text-red-700 active:scale-90"
+                            title="Delete Item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                     );
@@ -1017,7 +1017,7 @@ export default function HomePage() {
               {/* Total & Confirm Button */}
               <div className="pt-2 border-t border-[#EFE5C6] space-y-3">
                 <div className="flex items-center justify-between px-1">
-                  <span className="text-xs font-bold text-[#8C7540]">Grand Total</span>
+                  <span className="text-xs font-bold text-[#8C7540]">{t('grand_total')}</span>
                   <span className="text-base font-black text-emerald-700">
                     ₹{mandiGrandTotal.toLocaleString('en-IN')}
                   </span>
@@ -1025,22 +1025,30 @@ export default function HomePage() {
 
                 <button
                   onClick={handleStreamToBigQuery}
-                  disabled={isStreamingToBq}
-                  className="w-full py-3 rounded-2xl bg-[#261F0F] text-[#FFDE43] font-bold text-xs shadow-md active:scale-[0.99] transition flex items-center justify-center gap-2 disabled:opacity-50"
+                  disabled={isStreamingToBq || mandiItems.length === 0}
+                  className={`w-full py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.98] ${
+                    isStreamingToBq || mandiItems.length === 0
+                      ? 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
+                      : 'bg-[#261F0F] text-[#FFDE43] hover:bg-black'
+                  }`}
                 >
                   {isStreamingToBq ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Saving Bill to BigQuery...
+                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                      {t('recording_purchase')}
                     </>
                   ) : (
-                    'Confirm & Save Mandi Bill'
+                    <>
+                      <Check className="w-4 h-4" />
+                      {t('btn_record_purchase')}
+                    </>
                   )}
                 </button>
 
                 {mandiSuccessToast && (
-                  <p className="text-xs font-bold text-emerald-800 text-center animate-fade-in">
+                  <div className="p-3 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-xl text-center text-xs font-bold animate-fade-in">
                     {mandiSuccessToast}
-                  </p>
+                  </div>
                 )}
               </div>
             </div>
@@ -1048,106 +1056,177 @@ export default function HomePage() {
         )}
 
         {/* ========================================================================= */}
-        {/* 5. STATION ACCESS VIEW (DROPDOWN & BIGQUERY OUTLETS) */}
+        {/* 🔊 SUB-VIEW: AUDIO DETAILS / BREAKDOWN VIEW */}
         {/* ========================================================================= */}
-        {currentView === 'station' && (
+        {currentView === 'audio-details' && (
           <div className="flex-1 flex flex-col bg-[#FFFDF7] z-10 overflow-hidden">
-            <header className="shrink-0 bg-[#FFDE43] px-5 pt-6 pb-4 rounded-b-[24px] shadow-sm flex items-center justify-between">
+            <header className="shrink-0 bg-[#FFDE43] px-5 pt-5 pb-3.5 rounded-b-[24px] shadow-sm flex items-center justify-between">
               <button
                 onClick={() => setCurrentView('dispatch')}
                 className="flex items-center gap-1 text-xs font-black text-[#261F0F] active:scale-95"
               >
-                <ChevronLeft className="w-4 h-4" /> Station Access
+                <ChevronLeft className="w-4 h-4" /> {t('back')}
               </button>
-              <span className="text-xs font-bold text-[#57461E]">{stationName}</span>
+              <h2 className="text-sm font-black text-[#261F0F]">
+                {t('audio_bulletin_title')}
+              </h2>
+              <span className="text-xs font-bold text-[#57461E]">{liveTime}</span>
             </header>
 
             <div className="flex-1 px-5 py-4 overflow-y-auto space-y-4">
-              {/* Outlet Dropdown Selector from BigQuery */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-[#261F0F] uppercase tracking-wider">
-                  Select Kitchen Outlet
-                </label>
-                <select
-                  value={stationCode}
-                  onChange={(e) => handleSelectOutlet(e.target.value)}
-                  className="w-full bg-[#FAF6EC] border border-[#EFE5C6] rounded-2xl p-3 text-xs font-bold text-[#261F0F] focus:outline-none focus:ring-2 focus:ring-amber-400"
-                >
-                  {outlets.map((outlet) => (
-                    <option key={outlet.join_code} value={outlet.join_code}>
-                      {outlet.outlet_name} ({outlet.join_code}) — {outlet.city}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Current Station Code Pill */}
-              <div className="bg-[#FAF6EC] rounded-[22px] p-4 border border-[#EFE5C6] text-center space-y-2">
-                <div className="text-[11px] font-bold text-[#8C7540] uppercase tracking-wider">
-                  Current Station Access Code
-                </div>
-                <div className="flex items-center justify-center gap-2 font-mono text-xl font-black text-[#261F0F]">
-                  <span>{stationCode}</span>
+              {/* Full Spoken Transcript */}
+              <div className="bg-[#FAF6EC] rounded-[22px] p-4 border border-[#EFE5C6] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-[#261F0F] uppercase tracking-wider">
+                    {LANGUAGE_LABELS[currentLang].native} {t('voice_dispatch')}
+                  </span>
                   <button
-                    onClick={handleCopyCode}
-                    className="p-1 rounded-lg bg-[#FFDE43] text-[#261F0F] active:scale-90 transition"
-                    title="Copy Code"
+                    onClick={togglePlayMainAudio}
+                    className="w-7 h-7 rounded-full bg-[#FFDE43] text-[#261F0F] flex items-center justify-center active:scale-90"
                   >
-                    {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {isPlaying && playingShiftId === null ? (
+                      <Pause className="w-3.5 h-3.5 fill-current" />
+                    ) : (
+                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                    )}
                   </button>
                 </div>
-                <p className="text-[10px] text-[#8C7540]">
-                  Enter this code on any kitchen tablet or phone to access this outlet
+                <p className="text-xs font-semibold text-[#261F0F] leading-relaxed">
+                  &quot;{spokenScript}&quot;
                 </p>
               </div>
 
-              {/* Join By Typing Code */}
-              <form onSubmit={handleJoinByInputCode} className="space-y-2">
-                <label className="text-xs font-black text-[#261F0F] uppercase tracking-wider">
-                  Join Another Station
-                </label>
+              {/* Item-wise Targets */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-black text-[#261F0F] uppercase tracking-wider px-1">
+                  {t('prep_targets_title')}
+                </h3>
+                {forecastItems.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-[#FAF6EC] rounded-[18px] p-3 border border-[#EFE5C6] flex items-center justify-between"
+                  >
+                    <div>
+                      <div className="text-xs font-bold text-[#261F0F]">
+                        {getLocalizedItemName(item.item_name, currentLang)}
+                      </div>
+                      <div className="text-[10px] text-[#8C7540]">
+                        {getLocalizedUnit(item.unit, currentLang)}
+                      </div>
+                    </div>
+                    <div className="text-base font-black text-[#261F0F]">
+                      {item.predicted_qty} {getLocalizedUnit(item.unit, currentLang)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* ⚙️ SUB-VIEW: STATION SETTINGS */}
+        {/* ========================================================================= */}
+        {currentView === 'station' && (
+          <div className="flex-1 flex flex-col bg-[#FFFDF7] z-10 overflow-hidden">
+            <header className="shrink-0 bg-[#FFDE43] px-5 pt-5 pb-3.5 rounded-b-[24px] shadow-sm flex items-center justify-between">
+              <button
+                onClick={() => setCurrentView('dispatch')}
+                className="flex items-center gap-1 text-xs font-black text-[#261F0F] active:scale-95"
+              >
+                <ChevronLeft className="w-4 h-4" /> {t('back')}
+              </button>
+              <h2 className="text-sm font-black text-[#261F0F]">
+                {t('station_details')}
+              </h2>
+              <span className="text-xs font-bold text-[#57461E]">{stationCode}</span>
+            </header>
+
+            <div className="flex-1 px-5 py-5 overflow-y-auto space-y-4">
+              {/* Active Station Card */}
+              <div className="bg-[#FAF6EC] rounded-[24px] p-4 border border-[#EFE5C6] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-black text-[#261F0F]">{stationName}</h3>
+                    <p className="text-xs text-[#8C7540]">
+                      {t('station_details')} · {stationCode}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleCopyCode}
+                    className="px-3 py-1.5 rounded-full bg-[#FFDE43] text-xs font-bold text-[#261F0F] flex items-center gap-1 active:scale-95 transition"
+                  >
+                    {copiedCode ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" /> Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" /> Copy Code
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Station Switch Form */}
+              <form
+                onSubmit={handleSwitchStation}
+                className="bg-[#FAF6EC] rounded-[24px] p-4 border border-[#EFE5C6] space-y-3"
+              >
+                <div>
+                  <h4 className="text-xs font-black text-[#261F0F] uppercase tracking-wider">
+                    {t('switch_station')}
+                  </h4>
+                  <p className="text-[11px] text-[#8C7540]">
+                    {t('enter_code')}
+                  </p>
+                </div>
+
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={codeInput}
                     onChange={(e) => setCodeInput(e.target.value)}
-                    placeholder="e.g. KITCH-BA"
-                    className="flex-1 bg-[#FAF6EC] border border-[#EFE5C6] rounded-2xl px-3.5 py-2.5 text-xs font-mono font-bold uppercase text-[#261F0F] focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    placeholder="e.g. KITCH-AB"
+                    className="flex-1 bg-white border border-[#EFE5C6] rounded-xl px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#261F0F] placeholder-[#C4B798] focus:outline-none focus:border-amber-400"
                   />
                   <button
                     type="submit"
-                    className="px-5 py-2.5 rounded-2xl bg-[#261F0F] text-[#FFDE43] text-xs font-bold active:scale-95 transition"
+                    className="px-4 py-2 rounded-xl bg-[#261F0F] text-[#FFDE43] text-xs font-bold active:scale-95 transition"
                   >
-                    Join
+                    {t('btn_switch')}
                   </button>
                 </div>
+
                 {codeSuccessToast && (
-                  <p className="text-xs font-bold text-amber-800 text-center animate-fade-in">
-                    {codeSuccessToast}
-                  </p>
+                  <p className="text-xs font-bold text-emerald-700">{codeSuccessToast}</p>
                 )}
               </form>
 
               {/* Station Info Card */}
               <div className="bg-[#FAF6EC] rounded-[22px] p-4 border border-[#EFE5C6] space-y-2">
                 <span className="text-xs font-black text-[#261F0F] uppercase tracking-wider">
-                  Outlet Details
+                  {t('station_details')}
                 </span>
                 <div className="text-xs text-[#57461E] space-y-1">
                   <div>
-                    <span className="font-bold text-[#261F0F]">Network:</span>{' '}
-                    {outlets.find((o) => o.join_code === stationCode)?.kitchen_name || 'Jaipur Central Cloud Kitchen'}
+                    <span className="font-bold text-[#261F0F]">{t('network')}</span>{' '}
+                    {outlets.find((o) => o.join_code === stationCode)?.kitchen_name ||
+                      'Jaipur Central Cloud Kitchen'}
                   </div>
                   <div>
-                    <span className="font-bold text-[#261F0F]">Location:</span>{' '}
-                    {outlets.find((o) => o.join_code === stationCode)?.city || 'Jaipur'}, Rajasthan
+                    <span className="font-bold text-[#261F0F]">{t('location')}</span>{' '}
+                    {outlets.find((o) => o.join_code === stationCode)?.city || 'Jaipur'}
                   </div>
                   <div>
-                    <span className="font-bold text-[#261F0F]">Station Cook:</span>{' '}
-                    {outlets.find((o) => o.join_code === stationCode)?.chef_name || 'Assigned Staff'}
+                    <span className="font-bold text-[#261F0F]">{t('cook')}</span>{' '}
+                    {outlets.find((o) => o.join_code === stationCode)?.chef_name ||
+                      'Assigned Staff'}
                   </div>
                   <div>
-                    <span className="font-bold text-[#261F0F]">Status:</span> Active · Lunch Shift
+                    <span className="font-bold text-[#261F0F]">{t('active_shift')}</span>{' '}
+                    <span>{t(`shift_${currentShift}`)}</span>
                   </div>
                 </div>
               </div>
@@ -1156,45 +1235,76 @@ export default function HomePage() {
         )}
 
         {/* ========================================================================= */}
-        {/* 📌 BOTTOM NAVIGATION BAR (FIXED PINNED SHELL) */}
+        {/* 📌 BOTTOM NAVIGATION BAR (3 DEDICATED CLEAN TABS - MOBILE SAFE) */}
         {/* ========================================================================= */}
-        <nav className="shrink-0 bg-[#FFFDF7] border-t border-[#F1E7CA] px-6 pt-2 pb-safe z-30 shadow-[0_-4px_16px_rgba(0,0,0,0.03)]">
+        <nav className="shrink-0 bg-[#FFFDF7] border-t border-[#F1E7CA] px-4 pt-1.5 pb-[max(env(safe-area-inset-bottom,0px),10px)] z-40 shadow-[0_-4px_16px_rgba(0,0,0,0.03)] touch-manipulation">
           <div className="flex items-center justify-around">
-            {/* Tab 1: Home (Dispatch) */}
+            {/* Tab 1: Dispatch (तैयारी व ऑडियो) */}
             <button
               onClick={() => {
                 stopLiveCamera();
                 setCurrentView('dispatch');
               }}
-              className={`flex flex-col items-center gap-0.5 transition active:scale-95 ${
-                currentView === 'dispatch' || currentView === 'audio-details' || currentView === 'history'
+              className={`flex flex-col items-center gap-0.5 transition active:scale-95 min-w-[70px] min-h-[44px] justify-center ${
+                currentView === 'dispatch' || currentView === 'audio-details'
                   ? 'text-[#261F0F]'
                   : 'text-[#8C7540] hover:text-[#261F0F]'
               }`}
             >
               <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition ${
-                  currentView === 'dispatch' || currentView === 'audio-details' || currentView === 'history'
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
+                  currentView === 'dispatch' || currentView === 'audio-details'
                     ? 'bg-[#261F0F] text-[#FFDE43] shadow-md'
                     : 'hover:bg-[#FAF6EC]'
                 }`}
               >
                 <Activity className="w-5 h-5" />
               </div>
-              <span className="text-[10px] font-bold tracking-tight">Home</span>
+              <span className="text-[10px] font-bold tracking-tight">
+                {t('nav_prep')}
+              </span>
             </button>
 
-            {/* Tab 2: Mandi Scan */}
+            {/* Tab 2: Shift Records (शिफ्ट रिकॉर्ड) */}
             <button
-              onClick={() => setCurrentView('mandi-scan')}
-              className={`flex flex-col items-center gap-0.5 transition active:scale-95 ${
+              onClick={() => {
+                stopLiveCamera();
+                setCurrentView('history');
+              }}
+              className={`flex flex-col items-center gap-0.5 transition active:scale-95 min-w-[70px] min-h-[44px] justify-center ${
+                currentView === 'history'
+                  ? 'text-[#261F0F]'
+                  : 'text-[#8C7540] hover:text-[#261F0F]'
+              }`}
+            >
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
+                  currentView === 'history'
+                    ? 'bg-[#261F0F] text-[#FFDE43] shadow-md'
+                    : 'hover:bg-[#FAF6EC]'
+                }`}
+              >
+                <Clock className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-bold tracking-tight">
+                {t('nav_history')}
+              </span>
+            </button>
+
+            {/* Tab 3: Mandi Scan (मंडी स्कैनर) */}
+            <button
+              onClick={() => {
+                stopLiveCamera();
+                setCurrentView('mandi-scan');
+              }}
+              className={`flex flex-col items-center gap-0.5 transition active:scale-95 min-w-[70px] min-h-[44px] justify-center ${
                 currentView === 'mandi-scan'
                   ? 'text-[#261F0F]'
                   : 'text-[#8C7540] hover:text-[#261F0F]'
               }`}
             >
               <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition ${
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
                   currentView === 'mandi-scan'
                     ? 'bg-[#261F0F] text-[#FFDE43] shadow-md'
                     : 'hover:bg-[#FAF6EC]'
@@ -1202,36 +1312,11 @@ export default function HomePage() {
               >
                 <Camera className="w-5 h-5" />
               </div>
-              <span className="text-[10px] font-bold tracking-tight">Mandi Scan</span>
-            </button>
-
-            {/* Tab 3: Station Settings */}
-            <button
-              onClick={() => {
-                stopLiveCamera();
-                setCurrentView('station');
-              }}
-              className={`flex flex-col items-center gap-0.5 transition active:scale-95 ${
-                currentView === 'station'
-                  ? 'text-[#261F0F]'
-                  : 'text-[#8C7540] hover:text-[#261F0F]'
-              }`}
-            >
-              <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition ${
-                  currentView === 'station'
-                    ? 'bg-[#261F0F] text-[#FFDE43] shadow-md'
-                    : 'hover:bg-[#FAF6EC]'
-                }`}
-              >
-                <Building2 className="w-5 h-5" />
-              </div>
-              <span className="text-[10px] font-bold tracking-tight">Station</span>
+              <span className="text-[10px] font-bold tracking-tight">
+                {t('nav_scan')}
+              </span>
             </button>
           </div>
-
-          {/* Native Gesture Bar */}
-          <div className="w-24 h-1 bg-[#261F0F]/20 rounded-full mx-auto mt-1.5 mb-0.5" />
         </nav>
       </main>
     </div>

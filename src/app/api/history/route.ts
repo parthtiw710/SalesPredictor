@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchBulletinHistory } from '@/lib/db/cache';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -17,18 +20,13 @@ export async function GET(request: NextRequest) {
         items = [];
       }
 
-      const summary = items.length > 0
-        ? items.slice(0, 2).map((it: any) => `${it.item_name} (${it.predicted_qty}${it.unit || ''})`).join(', ')
-        : r.bulletin_text.slice(0, 45) + '...';
-
-      const normalizedAudioUrl = r.audio_url.startsWith('/api/audio')
-        ? r.audio_url
-        : `/api/audio?path=${encodeURIComponent(
-            r.audio_url.replace(
-              /^https:\/\/storage\.googleapis\.com\/salespredicter-audio-bulletins\//,
-              ''
-            )
-          )}`;
+      const summary =
+        items.length > 0
+          ? items
+              .slice(0, 2)
+              .map((it: any) => `${it.item_name} (${it.predicted_qty}${it.unit || ''})`)
+              .join(', ')
+          : r.bulletin_text.slice(0, 45) + '...';
 
       return {
         id: `shift_${idx + 1}`,
@@ -36,11 +34,16 @@ export async function GET(request: NextRequest) {
         meal_slot: r.meal_slot,
         lang_code: r.lang_code,
         date: r.forecast_date,
-        time: r.meal_slot === 'breakfast' ? '08:00 AM' : r.meal_slot === 'lunch' ? '12:30 PM' : '07:30 PM',
+        time:
+          r.meal_slot === 'breakfast'
+            ? '08:00 AM'
+            : r.meal_slot === 'lunch'
+            ? '12:30 PM'
+            : '07:30 PM',
         summary,
         details: r.bulletin_text,
         status: 'Completed',
-        audio_url: normalizedAudioUrl,
+        audio_url: r.audio_url,
         items
       };
     });
@@ -58,4 +61,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
