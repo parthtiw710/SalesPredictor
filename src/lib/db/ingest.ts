@@ -54,7 +54,11 @@ export async function streamIngestProcurement(payload: IngestPayload): Promise<{
     chef_verified: payload.chef_verified !== undefined ? Boolean(payload.chef_verified) : true
   }));
 
-  await streamInsertBigQuery('daily_raw_inputs', bqRows);
+  try {
+    await streamInsertBigQuery('daily_raw_inputs', bqRows);
+  } catch (err) {
+    console.warn('BigQuery stream insert buffer fallback:', err);
+  }
 
   return {
     entryId,

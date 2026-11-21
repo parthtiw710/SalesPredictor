@@ -1,4 +1,4 @@
-export interface LanguageVoiceConfig {
+﻿export interface LanguageVoiceConfig {
   code: string;
   name: string;
   nativeName: string;
@@ -112,7 +112,7 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     btn_record_purchase: 'सामग्री इन्वेंटरी में दर्ज करें',
     recording_purchase: 'इन्वेंटरी में दर्ज हो रहा है...',
     saved_success: 'सामान रसोई इन्वेंटरी में दर्ज हुआ!',
-    station_details: 'स्टेशन विवरण',
+    station_details: 'रसोई स्टेशन विवरण',
     network: 'रसोई नेटवर्क:',
     location: 'स्थान:',
     cook: 'मुख्य रसोइया:',
@@ -120,11 +120,35 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     switch_station: 'स्टेशन बदलें',
     enter_code: 'स्टेशन जॉइन कोड डालें',
     btn_switch: 'स्टेशन कोड लागू करें',
+    copy_code: 'कोड कॉपी करें',
+    copied: 'कॉपी हो गया',
+    select_outlet: 'यह आउटलेट चुनें',
+    current_active: '✓ सक्रिय आउटलेट',
+    all_outlets: 'उपलब्ध रसोई आउटलेट्स',
+    status_completed: 'संपन्न',
+    status_active: 'सक्रिय',
+    retake_photo: 'दोबारा फोटो लें',
+    align_slip: 'पर्ची को फ्रेम के अंदर रखें',
+    verified_items: 'सत्यापित सामग्री',
+    item_new: 'नई सामग्री',
     back: 'वापस',
     close: 'बंद करें',
     unit_kg: 'किलो',
     unit_litres: 'लीटर',
     unit_portions: 'प्लेट / भाग',
+        nav_home: 'होम',
+    nav_station: 'रसोई स्टेशन',
+    past_shifts: 'पुराने शिफ्ट निर्देश',
+    view_all: 'सभी देखें',
+    invalid_code: 'अमान्य स्टेशन कोड',
+    error_load_targets: 'टारगेट लोड नहीं हो सके। दोबारा प्रयास करें।',
+    error_network: 'नेटवर्क समस्या। पुनः प्रयास करें।',
+    vendor_mandi: 'मंडी सब्जी विक्रेता',
+    delete_item: 'सामग्री हटाएं',
+    captured_bill: 'स्कैन की गई पर्ची',
+    kitchen_jaipur_central: 'जयपुर सेंट्रल क्लाउड किचन',
+    assigned_staff: 'तैनात रसोई स्टाफ',
+    kitchen_os: 'रसोई OS',
     item_chicken_biryani: 'चिकन बिरयानी',
     item_butter_chicken: 'बटर चिकन ग्रेवी',
     item_dal_makhani: 'दाल मखनी बेस',
@@ -137,7 +161,10 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     item_sambar: 'सांभर सामग्री',
     item_roti_dough: 'तंदूरी रोटी आटा',
     item_aloo_paratha: 'आलू पराठा मसाला',
-    item_filter_coffee: 'फ़िल्टर कॉफ़ी / दूध'
+    item_filter_coffee: 'फ़िल्टर कॉफ़ी / दूध',
+    item_jeera_rice: 'जीरा राइस / पुलाव',
+    item_mutton_rogan: 'मटन रोगन जोश',
+    item_paneer_tikka: 'पनीर टिक्का मसाला'
   },
   en: {
     nav_prep: 'Prep & Audio',
@@ -180,6 +207,17 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     switch_station: 'Switch Station',
     enter_code: 'Enter Station Join Code',
     btn_switch: 'Apply Station Code',
+    copy_code: 'Copy Code',
+    copied: 'Copied',
+    select_outlet: 'Select Outlet',
+    current_active: '✓ Active Station',
+    all_outlets: 'Available Kitchen Outlets',
+    status_completed: 'Completed',
+    status_active: 'Active',
+    retake_photo: 'Retake Photo',
+    align_slip: 'Align slip inside frame',
+    verified_items: 'Verified Purchase Items',
+    item_new: 'New Item',
     back: 'Back',
     close: 'Close',
     unit_kg: 'kg',
@@ -197,7 +235,10 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     item_sambar: 'Sambar Pot',
     item_roti_dough: 'Tandoori Roti Dough',
     item_aloo_paratha: 'Aloo Paratha Dough',
-    item_filter_coffee: 'Filter Coffee / Tea Milk'
+    item_filter_coffee: 'Filter Coffee / Tea Milk',
+    item_jeera_rice: 'Jeera Rice / Pulao',
+    item_mutton_rogan: 'Mutton Rogan Josh Gravy',
+    item_paneer_tikka: 'Paneer Tikka Base'
   },
   bn: {
     nav_prep: 'প্রস্তুতি',
@@ -226,6 +267,8 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     col_qty: 'পরিমাণ',
     col_unit: 'একক',
     col_rate: 'দর (₹)',
+    status_completed: 'সম্পন্ন',
+    status_active: 'সক্রিয়',
     col_total: 'মোট (₹)',
     btn_add_item: '+ নতুন পণ্য যোগ করুন',
     grand_total: 'সর্বমোট (₹):',
@@ -257,7 +300,10 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     item_sambar: 'সাম্বার উপাদান',
     item_roti_dough: 'রুটির আটা',
     item_aloo_paratha: 'আলু পরোটা সামগ্রী',
-    item_filter_coffee: 'ফিল্টার কফি / দুধ'
+    item_filter_coffee: 'ফিল্টার কফি / দুধ',
+    item_jeera_rice: 'জিরা রাইস / পোলাও',
+    item_mutton_rogan: 'মাটন রোগন জোশ',
+    item_paneer_tikka: 'পনির টিক্কা বেস'
   },
   mr: {
     nav_prep: 'तयारी',
@@ -286,6 +332,8 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     col_qty: 'प्रमाण',
     col_unit: 'एकक',
     col_rate: 'दर (₹)',
+    status_completed: 'पूर्ण',
+    status_active: 'सक्रिय',
     col_total: 'एकूण (₹)',
     btn_add_item: '+ नवीन वस्तू जोडा',
     grand_total: 'एकूण रक्कम (₹):',
@@ -317,7 +365,10 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     item_sambar: 'सांबार साहित्य',
     item_roti_dough: 'रोटीचे पीठ',
     item_aloo_paratha: 'आलू पराठा मसाला',
-    item_filter_coffee: 'फिल्टर कॉफी / दूध'
+    item_filter_coffee: 'फिल्टर कॉफी / दूध',
+    item_jeera_rice: 'जिरा राईस / पुलाव',
+    item_mutton_rogan: 'मटण रोगन जोश',
+    item_paneer_tikka: 'पनीर टिक्का बेस'
   },
   gu: {
     nav_prep: 'તૈયારી',
@@ -346,6 +397,8 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     col_qty: 'જથ્થો',
     col_unit: 'એકમ',
     col_rate: 'ભાવ (₹)',
+    status_completed: 'પૂર્ણ',
+    status_active: 'સક્રિય',
     col_total: 'કુલ (₹)',
     btn_add_item: '+ નવી સામગ્રી ઉમેરો',
     grand_total: 'કુલ સરવાળો (₹):',
@@ -377,7 +430,10 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     item_sambar: 'સાંભાર સામગ્રી',
     item_roti_dough: 'રોટલીનો લોટ',
     item_aloo_paratha: 'આલૂ પરાઠા મસાલો',
-    item_filter_coffee: 'ફિલ્ટર કોફી / દૂધ'
+    item_filter_coffee: 'ફિલ્ટર કોફી / દૂધ',
+    item_jeera_rice: 'જીરા રાઇસ / પુલાવ',
+    item_mutton_rogan: 'મટન રોગન જોશ',
+    item_paneer_tikka: 'પનીર ટિક્કા બેઝ'
   },
   ta: {
     nav_prep: 'தயாரிப்பு',
@@ -406,6 +462,8 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     col_qty: 'அளவு',
     col_unit: 'அலகு',
     col_rate: 'விலை (₹)',
+    status_completed: 'முடிந்தது',
+    status_active: 'செயலில்',
     col_total: 'மொத்தம் (₹)',
     btn_add_item: '+ புதிய பொருள் சேர்',
     grand_total: 'மொத்த தொகை (₹):',
@@ -437,7 +495,10 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     item_sambar: 'சாம்பார் பொருட்கள்',
     item_roti_dough: 'ரொட்டி மாவு',
     item_aloo_paratha: 'ஆலூ பரோட்டா மாவு',
-    item_filter_coffee: 'பில்டர் காபி / பால்'
+    item_filter_coffee: 'பில்டர் காபி / பால்',
+    item_jeera_rice: 'சீரக சாதம் / புலாவ்',
+    item_mutton_rogan: 'மட்டன் ரோகன் ஜோஷ்',
+    item_paneer_tikka: 'பன்னீர் டிக்கா பேஸ்'
   },
   te: {
     nav_prep: 'తయారీ',
@@ -466,6 +527,8 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     col_qty: 'పరిమాణం',
     col_unit: 'యూనిట్',
     col_rate: 'ధర (₹)',
+    status_completed: 'పూర్తయింది',
+    status_active: 'చురుకుగా',
     col_total: 'మొత్తం (₹)',
     btn_add_item: '+ కొత్త వస్తువు జోడించండి',
     grand_total: 'మొత్తం మొత్తం (₹):',
@@ -497,7 +560,10 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     item_sambar: 'సాంబార్ పదార్థాలు',
     item_roti_dough: 'రొట్టె పిండి',
     item_aloo_paratha: 'ఆలూ పరాఠా మసాలా',
-    item_filter_coffee: 'ఫిల్టర్ కాఫీ / పాలు'
+    item_filter_coffee: 'ఫిల్టర్ కాఫీ / పాలు',
+    item_jeera_rice: 'జీరా రైస్ / పులావ్',
+    item_mutton_rogan: 'మటన్ రోగన్ జోష్',
+    item_paneer_tikka: 'పనీర్ టిక్కా బేస్'
   },
   pa: {
     nav_prep: 'ਤਿਆਰੀ',
@@ -526,6 +592,8 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     col_qty: 'ਮਾਤਰਾ',
     col_unit: 'ਇਕਾਈ',
     col_rate: 'ਦਰ (₹)',
+    status_completed: 'ਪੂਰਾ',
+    status_active: 'ਸਰਗਰਮ',
     col_total: 'ਕੁੱਲ (₹)',
     btn_add_item: '+ ਨਵੀਂ ਚੀਜ਼ ਜੋੜੋ',
     grand_total: 'ਕੁੱਲ ਜੋੜ (₹):',
@@ -557,7 +625,10 @@ export const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
     item_sambar: 'ਸਾਂਭਰ ਸਮੱਗਰੀ',
     item_roti_dough: 'ਰੋਟੀ ਦਾ ਆਟਾ',
     item_aloo_paratha: 'ਆਲੂ ਪਰੌਂਠਾ ਮਸਾਲਾ',
-    item_filter_coffee: 'ਫਿਲਟਰ ਕੌਫ਼ੀ / ਦੁੱਧ'
+    item_filter_coffee: 'ਫਿਲਟਰ ਕੌਫ਼ੀ / ਦੁੱਧ',
+    item_jeera_rice: 'ਜੀਰਾ ਰਾਈਸ / ਪੁਲਾਓ',
+    item_mutton_rogan: 'ਮਟਨ ਰੋਗਨ ਜੋਸ਼',
+    item_paneer_tikka: 'ਪਨੀਰ ਟਿੱਕਾ ਬੇਸ'
   }
 };
 
@@ -591,7 +662,14 @@ export function getLocalizedItemName(itemName: string, lang: string = 'hi'): str
     sambarpot: 'item_sambar',
     tandoorirotidough: 'item_roti_dough',
     alooparathadough: 'item_aloo_paratha',
-    filtercoffeeteamilk: 'item_filter_coffee'
+    filtercoffeeteamilk: 'item_filter_coffee',
+    jeerarice: 'item_jeera_rice',
+    jeeraricepulao: 'item_jeera_rice',
+    pulao: 'item_jeera_rice',
+    muttonroganjosh: 'item_mutton_rogan',
+    muttonroganjoshgravy: 'item_mutton_rogan',
+    paneertikka: 'item_paneer_tikka',
+    paneertikkabase: 'item_paneer_tikka'
   };
 
   const key = keyMap[lower];
@@ -610,6 +688,114 @@ export function getLocalizedUnit(unit: string, lang: string = 'hi'): string {
   if (u === 'litres' || u === 'litre' || u === 'l') return getTranslation('unit_litres', lang);
   if (u === 'portions' || u === 'portion' || u === 'plates') return getTranslation('unit_portions', lang);
   return unit;
+}
+
+/**
+ * Translates outlet names into target language.
+ */
+export function getLocalizedOutletName(name: string, lang: string = 'hi'): string {
+  const code = (lang || 'hi').toLowerCase().trim();
+  if (code === 'en') return name || 'Civil Lines Express';
+
+  const clean = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  if (clean.includes('civil') || clean.includes('aa')) {
+    const map: Record<string, string> = {
+      hi: 'सिविल लाइन्स एक्सप्रेस',
+      bn: 'সিভিল লাইনস এক্সপ্রেস',
+      mr: 'सिव्हिल लाइन्स एक्सप्रेस',
+      gu: 'સિવિલ લાઇન્સ એક્સપ્રેસ',
+      ta: 'சிவில் லைன்ஸ் எக்ஸ்பிரஸ்',
+      te: 'సివిల్ లైన్స్ ఎక్స్‌ప్రెస్',
+      pa: 'ਸਿਵਲ ਲਾਈਨਜ਼ ਐਕਸਪ੍ਰੈੱਸ'
+    };
+    return map[code] || map.hi;
+  }
+  if (clean.includes('malviya') || clean.includes('ab')) {
+    const map: Record<string, string> = {
+      hi: 'मालवीय नगर हब',
+      bn: 'মালব্য নগর হাব',
+      mr: 'मालवीय नगर हब',
+      gu: 'માલવિયા નગર હબ',
+      ta: 'மால்வியா நகர் மையம்',
+      te: 'మాలవీయ నగర్ హబ్',
+      pa: 'ਮਾਲਵੀਆ ਨਗਰ ਹੱਬ'
+    };
+    return map[code] || map.hi;
+  }
+  if (clean.includes('connaught') || clean.includes('ba')) {
+    const map: Record<string, string> = {
+      hi: 'कनॉट प्लेस सेंट्रल',
+      bn: 'কনট প্লেস সেন্ট্রাল',
+      mr: 'कनॉट प्लेस सेंट्रल',
+      gu: 'કનૉટ પ્લેસ સેન્ટ્રલ',
+      ta: 'கன்னாட் பிளேஸ் சென்ட்ரல்',
+      te: 'కన్నాట్ ప్లేస్ సెంట్రల్',
+      pa: 'ਕਨਾਟ ਪਲੇਸ ਸੈਂਟਰਲ'
+    };
+    return map[code] || map.hi;
+  }
+  if (clean.includes('indiranagar') || clean.includes('ca')) {
+    const map: Record<string, string> = {
+      hi: 'इंदिरानगर क्लाउड हब',
+      bn: 'ইন্দিরানগর ক্লাউড হাব',
+      mr: 'इंदिरानगर क्लाउड हब',
+      gu: 'ઇન્દિરાનગર ક્લાઉડ હબ',
+      ta: 'இந்திராநகர் கிளவுட் மையம்',
+      te: 'ఇందిరానగర్ క్లౌడ్ హబ్',
+      pa: 'ਇੰਦਰਾ ਨਗਰ ਕਲਾਊਡ ਹੱਬ'
+    };
+    return map[code] || map.hi;
+  }
+  if (clean.includes('bandra') || clean.includes('da')) {
+    const map: Record<string, string> = {
+      hi: 'बांद्रा वेस्ट किचन',
+      bn: 'বান্দ্রা পশ্চিম রান্নাঘর',
+      mr: 'वांद्रे पश्चिम किचन',
+      gu: 'બાંદ્રા વેસ્ટ કિચન',
+      ta: 'பாந்த்ரா மேற்கு சமையலறை',
+      te: 'బాంద్రా వెస్ట్ కిచెన్',
+      pa: 'ਬਾਂਦਰਾ ਵੈਸਟ ਰਸੋਈ'
+    };
+    return map[code] || map.hi;
+  }
+
+  return 'सिविल लाइन्स एक्सप्रेस';
+}
+
+/**
+ * Translates city names into target language.
+ */
+export function getLocalizedCity(city: string, lang: string = 'hi'): string {
+  const code = (lang || 'hi').toLowerCase().trim();
+  if (code === 'en') return city;
+
+  const cities: Record<string, Record<string, string>> = {
+    Jaipur: { hi: 'जयपुर', bn: 'জয়পুর', mr: 'जयपूर', gu: 'જયપુર', ta: 'ஜெய்ப்பூர்', te: 'జైపూర్', pa: 'ਜੈਪੁਰ' },
+    Delhi: { hi: 'दिल्ली', bn: 'দিল্লি', mr: 'दिल्ली', gu: 'દિલ્હી', ta: 'தில்லி', te: 'ఢిల్లీ', pa: 'ਦਿੱਲੀ' },
+    Bengaluru: { hi: 'बेंगलुरु', bn: 'বেঙ্গালুরু', mr: 'बंगळुरू', gu: 'બેંગલુરુ', ta: 'பெங்களூரு', te: 'బెంగళూరు', pa: 'ਬੈਂਗਲੁਰੂ' },
+    Mumbai: { hi: 'मुंबई', bn: 'মুম্বাই', mr: 'मुंबई', gu: 'મુંબઈ', ta: 'மும்பை', te: 'ముంబై', pa: 'ਮੁੰਬਈ' }
+  };
+
+  return cities[city]?.[code] || cities[city]?.hi || city;
+}
+
+/**
+ * Translates chef names into target language.
+ */
+export function getLocalizedChef(chef: string, lang: string = 'hi'): string {
+  const code = (lang || 'hi').toLowerCase().trim();
+  if (code === 'en') return chef;
+
+  const chefs: Record<string, Record<string, string>> = {
+    'Chef Rajesh Sharma': { hi: 'शेफ राजेश शर्मा', bn: 'শেফ রাজেশ শর্মা', mr: 'शेफ राजेश शर्मा', gu: 'શેફ રાજેશ શર્મા', ta: 'செஃப் ராஜேஷ் சர்மா', te: 'చెఫ్ రాజేష్ శర్మ', pa: 'ਸ਼ੈੱਫ ਰਾਜੇਸ਼ ਸ਼ਰਮਾ' },
+    'Chef Anita Meena': { hi: 'शेफ अनिता मीणा', bn: 'শেফ অনিতা মীনা', mr: 'शेफ अनिता मीना', gu: 'શેફ અનિતા મીણા', ta: 'செஃப் அனிதா மீனா', te: 'చెఫ్ అనితా మీనా', pa: 'ਸ਼ੈੱਫ ਅਨੀਤਾ ਮੀਣਾ' },
+    'Chef Vikram Singh': { hi: 'शेफ विक्रम सिंह', bn: 'শেফ বিক্রম সিং', mr: 'शेफ विक्रम सिंग', gu: 'શેਫ વિક્રਮ સિંહ', ta: 'செஃப் விக்ரம் சிங்', te: 'చెఫ్ విక్రమ్ సింగ్', pa: 'ਸ਼ੈੱਫ ਵਿਕਰਮ ਸਿੰਘ' },
+    'Chef Priya Nair': { hi: 'शेफ प्रिया नायर', bn: 'শেফ প্রিয়া নায়ার', mr: 'शेफ प्रिया नायर', gu: 'શેફ પ્રિયા નાયર', ta: 'செஃப் பிரியா நாயர்', te: 'చెఫ్ ప్రియా నాయర్', pa: 'ਸ਼ੈੱਫ ਪ੍ਰਿਆ ਨਾਇਰ' },
+    'Chef Farhan Khan': { hi: 'शेफ फरहान खान', bn: 'শেফ ফারহান খান', mr: 'शेफ फरहान खान', gu: 'શેਫ ફરહાન ખાન', ta: 'செஃப் ஃபர்ஹான் கான்', te: 'చెఫ్ ఫర్హాన్ ఖాన్', pa: 'ਸ਼ੈੱਫ ਫਰਹਾਨ ਖਾਨ' }
+  };
+
+  return chefs[chef]?.[code] || chefs[chef]?.hi || chef;
 }
 
 /**

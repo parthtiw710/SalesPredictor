@@ -26,7 +26,10 @@ import {
   SUPPORTED_LANGUAGES,
   getTranslation,
   getLocalizedItemName,
-  getLocalizedUnit
+  getLocalizedUnit,
+  getLocalizedOutletName,
+  getLocalizedCity,
+  getLocalizedChef
 } from '@/lib/i18n';
 
 export interface ForecastItem {
@@ -114,13 +117,10 @@ export default function HomePage() {
   const [liveTime, setLiveTime] = useState('');
   useEffect(() => {
     const update = () => {
-      setLiveTime(
-        new Date().toLocaleTimeString('en-IN', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        })
-      );
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      setLiveTime(`${hh}:${mm}`);
     };
     update();
     const timer = setInterval(update, 1000);
@@ -216,11 +216,11 @@ export default function HomePage() {
             audioRef.current.load();
           }
         } else {
-          setBulletinError('Could not load targets. Tap to retry.');
+          setBulletinError(t('error_load_targets'));
         }
       } catch (err) {
         console.warn('Failed to fetch bulletin:', err);
-        setBulletinError('Network error. Tap to retry.');
+        setBulletinError(t('error_network'));
       } finally {
         setIsBulletinLoading(false);
       }
@@ -272,51 +272,82 @@ export default function HomePage() {
     fetchMandiPurchases();
   }, [fetchMandiPurchases]);
 
+  // Web Speech API fallback helper
+  const speakWithBrowserTTS = (text: string, langCode: string) => {
+    if (!text || typeof window === 'undefined' || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    const langConfig = SUPPORTED_LANGUAGES[langCode];
+    utter.lang = langConfig?.ttsLangCode || 'hi-IN';
+    utter.rate = langConfig?.speakingRate || 1.05;
+    utter.onstart = () => setIsPlaying(true);
+    utter.onend = () => { setIsPlaying(false); setPlayingShiftId(null); };
+    utter.onerror = () => { setIsPlaying(false); setPlayingShiftId(null); };
+    window.speechSynthesis.speak(utter);
+  };
+
   // Handle Audio Playback
   const togglePlayMainAudio = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (!audioRef.current) return;
 
-    if (playingShiftId !== null) {
+    if (isPlaying) {
+      // Stop whatever is playing
+      if (audioRef.current) { audioRef.current.pause(); }
+      if (typeof window !== 'undefined' && window.speechSynthesis) { window.speechSynthesis.cancel(); }
+      setIsPlaying(false);
+      setPlayingShiftId(null);
+      return;
+    }
+
+    if (playingShiftId !== null && audioRef.current) {
       audioRef.current.src = activeAudioSrc;
       setPlayingShiftId(null);
     }
 
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
+    // Try GCS audio first; fall back to Web Speech API
+    if (activeAudioSrc) {
+      if (!audioRef.current) return;
+      audioRef.current.src = activeAudioSrc;
       audioRef.current
         .play()
         .then(() => setIsPlaying(true))
-        .catch((err) => {
-          console.warn('Audio playback error:', err);
-          setIsPlaying(false);
+        .catch(() => {
+          // GCS audio failed — use browser TTS
+          speakWithBrowserTTS(spokenScript, currentLang);
         });
+    } else {
+      // No audio URL — use browser TTS directly
+      speakWithBrowserTTS(spokenScript, currentLang);
     }
   };
 
   const playShiftAudio = (shift: ShiftHistoryEntry, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!audioRef.current) return;
 
     if (playingShiftId === shift.id && isPlaying) {
-      audioRef.current.pause();
+      if (audioRef.current) { audioRef.current.pause(); }
+      if (typeof window !== 'undefined' && window.speechSynthesis) { window.speechSynthesis.cancel(); }
       setIsPlaying(false);
+      setPlayingShiftId(null);
       return;
     }
 
     const src = shift.audio_url || activeAudioSrc;
-    if (src) {
+    if (src && audioRef.current) {
       audioRef.current.src = src;
       setPlayingShiftId(shift.id);
       audioRef.current
         .play()
         .then(() => setIsPlaying(true))
-        .catch((err) => {
-          console.warn('Audio play error:', err);
-          setIsPlaying(false);
+        .catch(() => {
+          // Fall back to browser TTS using shift bulletin text
+          setPlayingShiftId(shift.id);
+          speakWithBrowserTTS(shift.details || shift.summary, shift.lang_code || currentLang);
         });
+    } else {
+      // No audio at all — use browser TTS
+      setPlayingShiftId(shift.id);
+      speakWithBrowserTTS(shift.details || shift.summary, shift.lang_code || currentLang);
     }
   };
 
@@ -357,16 +388,29 @@ export default function HomePage() {
       setCurrentKitchenId(match.kitchen_id);
       setCurrentOutletId(match.outlet_id);
       localStorage.setItem('salespredicter_station_code', match.join_code);
-      setCodeSuccessToast(`Connected to ${match.outlet_name}!`);
+      setCodeSuccessToast(`${getLocalizedOutletName(match.outlet_name, currentLang)} ✓`);
       setCodeInput('');
       setTimeout(() => {
         setCodeSuccessToast(null);
         setCurrentView('dispatch');
       }, 1200);
     } else {
-      setCodeSuccessToast('Invalid station join code');
+      setCodeSuccessToast(t('invalid_code'));
       setTimeout(() => setCodeSuccessToast(null), 2500);
     }
+  };
+
+  const handleSelectOutlet = (o: OutletRecord) => {
+    setStationCode(o.join_code);
+    setStationName(o.outlet_name);
+    setCurrentKitchenId(o.kitchen_id);
+    setCurrentOutletId(o.outlet_id);
+    localStorage.setItem('salespredicter_station_code', o.join_code);
+    setCodeSuccessToast(`${getLocalizedOutletName(o.outlet_name, currentLang)} ✓`);
+    setTimeout(() => {
+      setCodeSuccessToast(null);
+      setCurrentView('dispatch');
+    }, 500);
   };
 
   // Camera Management
@@ -463,7 +507,7 @@ export default function HomePage() {
   const handleAddMandiItem = () => {
     setMandiItems((prev) => [
       ...prev,
-      { item_name: 'New Item', quantity: 5, unit: 'kg', rate: 40, row_total: 200 }
+      { item_name: t('item_new'), quantity: 5, unit: 'kg', rate: 40, row_total: 200 }
     ]);
   };
 
@@ -482,7 +526,7 @@ export default function HomePage() {
           kitchen_id: currentKitchenId,
           outlet_id: currentOutletId,
           source_type: 'GEMINI_OCR',
-          vendor_name: 'Mandi Vendor Delivery',
+          vendor_name: t('vendor_mandi'),
           items: mandiItems
         })
       });
@@ -542,7 +586,7 @@ export default function HomePage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-[21px] font-black text-[#261F0F] tracking-tight leading-tight">
-                    {stationName}
+                    {getLocalizedOutletName(stationName, currentLang)}
                   </h1>
                   <p className="text-[12px] font-semibold text-[#5A471C] mt-0.5">
                     {stationCode} · {liveTime}
@@ -687,25 +731,67 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* Dedicated Navigation Quick Card to Shift Records */}
-              <div
-                onClick={() => setCurrentView('history')}
-                className="bg-[#FAF6EC] rounded-[20px] p-3.5 border border-[#EFE5C6] flex items-center justify-between cursor-pointer active:scale-[0.99] transition shadow-sm"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-amber-200/80 flex items-center justify-center text-[#261F0F]">
-                    <Clock className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-black text-[#261F0F]">
-                      {t('shift_records_title')}
-                    </h3>
-                    <p className="text-[10px] text-[#8C7540]">
-                      {fullShiftHistory.length} {t('shift_records_title')}
-                    </p>
-                  </div>
+              {/* Past Shift Dispatches Section with See More / View All */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between px-1">
+                  <h2 className="text-xs font-black text-[#261F0F] tracking-tight uppercase">
+                    {t('past_shifts')}
+                  </h2>
+                  <button
+                    onClick={() => setCurrentView('history')}
+                    className="text-xs font-bold text-[#8C7540] hover:text-[#261F0F] flex items-center gap-0.5"
+                  >
+                    {t('view_all')} <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <ChevronRight className="w-4 h-4 text-[#8C7540]" />
+
+                {/* Shift History Cards */}
+                {isHistoryLoading ? (
+                  <div className="p-4 text-center text-xs text-[#8C7540] flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" /> {t('loading_history')}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {fullShiftHistory.slice(0, 3).map((shift) => (
+                      <div
+                        key={shift.id}
+                        onClick={() => setCurrentView('history')}
+                        className="bg-[#FAF6EC] rounded-[18px] p-3 border border-[#EFE5C6] flex items-center justify-between gap-3 active:scale-[0.99] transition cursor-pointer shadow-sm"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-xs font-black text-[#261F0F]">
+                              {shift.shift_name}
+                            </span>
+                            <span className="text-[10px] font-mono text-[#8C7540]">
+                              {shift.time}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[#57461E] truncate">
+                            {shift.summary}
+                          </div>
+                        </div>
+
+                        {/* Shift Audio Play Button */}
+                        <button
+                          onClick={(e) => playShiftAudio(shift, e)}
+                          className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition active:scale-90 ${
+                            isPlaying && playingShiftId === shift.id
+                              ? 'bg-[#261F0F] text-[#FFDE43]'
+                              : 'bg-[#FFDE43] text-[#261F0F]'
+                          }`}
+                          title={t('voice_dispatch')}
+                        >
+                          {isPlaying && playingShiftId === shift.id ? (
+                            <Pause className="w-3.5 h-3.5 fill-current" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -773,7 +859,7 @@ export default function HomePage() {
                           </p>
                         </div>
                         <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                          {shift.status}
+                          {shift.status?.toLowerCase() === 'completed' ? t('status_completed') : t('status_active')}
                         </span>
                       </div>
 
@@ -889,7 +975,7 @@ export default function HomePage() {
                     <div className="space-y-2">
                       <img
                         src={capturedPreview}
-                        alt="Captured Bill"
+                        alt={t('captured_bill')}
                         className="max-h-36 mx-auto rounded-xl border border-[#D8CEB4] object-contain shadow-sm"
                       />
                       <div className="flex gap-2 justify-center">
@@ -897,7 +983,7 @@ export default function HomePage() {
                           onClick={startLiveCamera}
                           className="px-3.5 py-1.5 rounded-full bg-[#FFDE43] text-xs font-bold text-[#261F0F] active:scale-95"
                         >
-                          {t('btn_camera')}
+                          {t('retake_photo')}
                         </button>
                       </div>
                     </div>
@@ -945,7 +1031,7 @@ export default function HomePage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black text-[#261F0F] uppercase tracking-wide">
-                    {t('prep_targets_title')} ({mandiItems.length})
+                    {t('verified_items')} ({mandiItems.length})
                   </span>
                   <button
                     onClick={handleAddMandiItem}
@@ -1003,7 +1089,7 @@ export default function HomePage() {
                           <button
                             onClick={() => handleDeleteMandiItem(idx)}
                             className="p-1 text-red-500 hover:text-red-700 active:scale-90"
-                            title="Delete Item"
+                            title={t('delete_item')}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1144,10 +1230,12 @@ export default function HomePage() {
 
             <div className="flex-1 px-5 py-5 overflow-y-auto space-y-4">
               {/* Active Station Card */}
-              <div className="bg-[#FAF6EC] rounded-[24px] p-4 border border-[#EFE5C6] space-y-3">
+              <div className="bg-[#FAF6EC] rounded-[24px] p-4 border border-[#EFE5C6] space-y-3 shadow-sm">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-black text-[#261F0F]">{stationName}</h3>
+                    <h3 className="text-sm font-black text-[#261F0F]">
+                      {getLocalizedOutletName(stationName, currentLang)}
+                    </h3>
                     <p className="text-xs text-[#8C7540]">
                       {t('station_details')} · {stationCode}
                     </p>
@@ -1158,18 +1246,74 @@ export default function HomePage() {
                   >
                     {copiedCode ? (
                       <>
-                        <Check className="w-3.5 h-3.5" /> Copied
+                        <Check className="w-3.5 h-3.5" /> {t('copied')}
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3.5 h-3.5" /> Copy Code
+                        <Copy className="w-3.5 h-3.5" /> {t('copy_code')}
                       </>
                     )}
                   </button>
                 </div>
               </div>
 
-              {/* Station Switch Form */}
+              {/* 🏪 Interactive Outlet Switcher List */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-black text-[#261F0F] uppercase tracking-wider px-1">
+                  {t('all_outlets')} ({outlets.length})
+                </h4>
+                <div className="space-y-2">
+                  {outlets.map((outlet) => {
+                    const isSelected = outlet.join_code === stationCode;
+                    return (
+                      <div
+                        key={outlet.outlet_id}
+                        onClick={() => handleSelectOutlet(outlet)}
+                        className={`rounded-[20px] p-3.5 border transition cursor-pointer active:scale-[0.99] flex items-center justify-between gap-3 ${
+                          isSelected
+                            ? 'bg-amber-100/70 border-amber-400 ring-2 ring-amber-400 shadow-sm'
+                            : 'bg-[#FAF6EC] border-[#EFE5C6] hover:border-amber-300'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-xs font-black text-[#261F0F] truncate">
+                              {getLocalizedOutletName(outlet.outlet_name, currentLang)}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded-md bg-[#261F0F] text-[#FFDE43] text-[9px] font-mono font-bold shrink-0">
+                              {outlet.join_code}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-[#57461E] truncate">
+                            {getLocalizedCity(outlet.city, currentLang)} ·{' '}
+                            {getLocalizedChef(outlet.chef_name, currentLang)}
+                          </p>
+                        </div>
+
+                        <div>
+                          {isSelected ? (
+                            <span className="px-2.5 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-bold shrink-0">
+                              {t('current_active')}
+                            </span>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectOutlet(outlet);
+                              }}
+                              className="px-2.5 py-1 rounded-full bg-[#FFDE43] text-[#261F0F] text-[10px] font-bold shrink-0 shadow-sm"
+                            >
+                              {t('select_outlet')}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Station Switch Form (Manual Join Code) */}
               <form
                 onSubmit={handleSwitchStation}
                 className="bg-[#FAF6EC] rounded-[24px] p-4 border border-[#EFE5C6] space-y-3"
@@ -1213,16 +1357,22 @@ export default function HomePage() {
                   <div>
                     <span className="font-bold text-[#261F0F]">{t('network')}</span>{' '}
                     {outlets.find((o) => o.join_code === stationCode)?.kitchen_name ||
-                      'Jaipur Central Cloud Kitchen'}
+                      t('kitchen_jaipur_central')}
                   </div>
                   <div>
                     <span className="font-bold text-[#261F0F]">{t('location')}</span>{' '}
-                    {outlets.find((o) => o.join_code === stationCode)?.city || 'Jaipur'}
+                    {getLocalizedCity(
+                      outlets.find((o) => o.join_code === stationCode)?.city || 'Jaipur',
+                      currentLang
+                    )}
                   </div>
                   <div>
                     <span className="font-bold text-[#261F0F]">{t('cook')}</span>{' '}
-                    {outlets.find((o) => o.join_code === stationCode)?.chef_name ||
-                      'Assigned Staff'}
+                    {getLocalizedChef(
+                      outlets.find((o) => o.join_code === stationCode)?.chef_name ||
+                        t('assigned_staff'),
+                      currentLang
+                    )}
                   </div>
                   <div>
                     <span className="font-bold text-[#261F0F]">{t('active_shift')}</span>{' '}
@@ -1235,25 +1385,25 @@ export default function HomePage() {
         )}
 
         {/* ========================================================================= */}
-        {/* 📌 BOTTOM NAVIGATION BAR (3 DEDICATED CLEAN TABS - MOBILE SAFE) */}
+        {/* 📌 BOTTOM NAVIGATION BAR (1: Home, 2: Mandi Scan, 3: Kitchen Switcher) */}
         {/* ========================================================================= */}
         <nav className="shrink-0 bg-[#FFFDF7] border-t border-[#F1E7CA] px-4 pt-1.5 pb-[max(env(safe-area-inset-bottom,0px),10px)] z-40 shadow-[0_-4px_16px_rgba(0,0,0,0.03)] touch-manipulation">
           <div className="flex items-center justify-around">
-            {/* Tab 1: Dispatch (तैयारी व ऑडियो) */}
+            {/* Tab 1: Home / Dispatch (तैयारी व मुख्य पृष्ठ) */}
             <button
               onClick={() => {
                 stopLiveCamera();
                 setCurrentView('dispatch');
               }}
               className={`flex flex-col items-center gap-0.5 transition active:scale-95 min-w-[70px] min-h-[44px] justify-center ${
-                currentView === 'dispatch' || currentView === 'audio-details'
+                currentView === 'dispatch' || currentView === 'audio-details' || currentView === 'history'
                   ? 'text-[#261F0F]'
                   : 'text-[#8C7540] hover:text-[#261F0F]'
               }`}
             >
               <div
                 className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
-                  currentView === 'dispatch' || currentView === 'audio-details'
+                  currentView === 'dispatch' || currentView === 'audio-details' || currentView === 'history'
                     ? 'bg-[#261F0F] text-[#FFDE43] shadow-md'
                     : 'hover:bg-[#FAF6EC]'
                 }`}
@@ -1261,40 +1411,13 @@ export default function HomePage() {
                 <Activity className="w-5 h-5" />
               </div>
               <span className="text-[10px] font-bold tracking-tight">
-                {t('nav_prep')}
+                {t('nav_home')}
               </span>
             </button>
 
-            {/* Tab 2: Shift Records (शिफ्ट रिकॉर्ड) */}
+            {/* Tab 2: Mandi Scan (2nd Navlink: मंडी स्कैनर) */}
             <button
               onClick={() => {
-                stopLiveCamera();
-                setCurrentView('history');
-              }}
-              className={`flex flex-col items-center gap-0.5 transition active:scale-95 min-w-[70px] min-h-[44px] justify-center ${
-                currentView === 'history'
-                  ? 'text-[#261F0F]'
-                  : 'text-[#8C7540] hover:text-[#261F0F]'
-              }`}
-            >
-              <div
-                className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
-                  currentView === 'history'
-                    ? 'bg-[#261F0F] text-[#FFDE43] shadow-md'
-                    : 'hover:bg-[#FAF6EC]'
-                }`}
-              >
-                <Clock className="w-5 h-5" />
-              </div>
-              <span className="text-[10px] font-bold tracking-tight">
-                {t('nav_history')}
-              </span>
-            </button>
-
-            {/* Tab 3: Mandi Scan (मंडी स्कैनर) */}
-            <button
-              onClick={() => {
-                stopLiveCamera();
                 setCurrentView('mandi-scan');
               }}
               className={`flex flex-col items-center gap-0.5 transition active:scale-95 min-w-[70px] min-h-[44px] justify-center ${
@@ -1314,6 +1437,32 @@ export default function HomePage() {
               </div>
               <span className="text-[10px] font-bold tracking-tight">
                 {t('nav_scan')}
+              </span>
+            </button>
+
+            {/* Tab 3: Kitchen Switcher (3rd Navlink: रसोई स्टेशन स्विच) */}
+            <button
+              onClick={() => {
+                stopLiveCamera();
+                setCurrentView('station');
+              }}
+              className={`flex flex-col items-center gap-0.5 transition active:scale-95 min-w-[70px] min-h-[44px] justify-center ${
+                currentView === 'station'
+                  ? 'text-[#261F0F]'
+                  : 'text-[#8C7540] hover:text-[#261F0F]'
+              }`}
+            >
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
+                  currentView === 'station'
+                    ? 'bg-[#261F0F] text-[#FFDE43] shadow-md'
+                    : 'hover:bg-[#FAF6EC]'
+                }`}
+              >
+                <Building2 className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-bold tracking-tight">
+                {t('nav_station')}
               </span>
             </button>
           </div>

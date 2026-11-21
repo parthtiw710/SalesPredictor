@@ -67,23 +67,28 @@ export async function fetchTimesFMForecast(
   }
 
   // Fallback: Rolling aggregate strictly from BigQuery sales_feature_store
-  const fallbackSql = `
-    SELECT 
-      meal_slot,
-      item_name,
-      unit,
-      ROUND(AVG(CAST(quantity_sold AS FLOAT64) * base_event_demand_multiplier), 0) AS predicted_qty,
-      ROUND(MIN(CAST(quantity_sold AS FLOAT64)), 0) AS lower_bound_qty,
-      ROUND(MAX(CAST(quantity_sold AS FLOAT64) * 1.2), 0) AS upper_bound_qty
-    FROM \`${PROJECT_ID}.${DATASET_ID}.sales_feature_store\`
-    WHERE kitchen_id = '${kitchenId}'
-      AND outlet_id = '${outletId}'
-      AND meal_slot = '${slot}'
-    GROUP BY meal_slot, item_name, unit
-    LIMIT 8;
-  `;
-  const rollingItems = await queryBigQuery<ForecastItem>(fallbackSql);
-  return rollingItems || [];
+  try {
+    const fallbackSql = `
+      SELECT 
+        meal_slot,
+        item_name,
+        unit,
+        ROUND(AVG(CAST(quantity_sold AS FLOAT64) * base_event_demand_multiplier), 0) AS predicted_qty,
+        ROUND(MIN(CAST(quantity_sold AS FLOAT64)), 0) AS lower_bound_qty,
+        ROUND(MAX(CAST(quantity_sold AS FLOAT64) * 1.2), 0) AS upper_bound_qty
+      FROM \`${PROJECT_ID}.${DATASET_ID}.sales_feature_store\`
+      WHERE kitchen_id = '${kitchenId}'
+        AND outlet_id = '${outletId}'
+        AND meal_slot = '${slot}'
+      GROUP BY meal_slot, item_name, unit
+      LIMIT 8;
+    `;
+    const rollingItems = await queryBigQuery<ForecastItem>(fallbackSql);
+    return rollingItems || [];
+  } catch (err) {
+    console.error('BigQuery rolling query error:', err);
+    return [];
+  }
 }
 
 export const fetchArimaForecast = fetchTimesFMForecast;

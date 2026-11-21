@@ -1,3 +1,5 @@
+import { getLocalizedItemName, getLocalizedUnit } from './i18n';
+
 export const PROJECT_ID = 'bustling-wharf-485615-s9';
 export const DATASET_ID = 'sales_predictor';
 export const GCS_AUDIO_BUCKET = 'salespredicter-audio-bulletins';
@@ -220,11 +222,14 @@ export async function generateChefScript(
 ): Promise<string> {
   const token = await getGcpAccessToken();
   const itemsSummary = forecastItems
-    .map((i) => `${i.item_name}: ${i.predicted_qty} ${i.unit}`)
+    .map(
+      (i) =>
+        `${getLocalizedItemName(i.item_name, 'hi')}: ${i.predicted_qty} ${getLocalizedUnit(i.unit, 'hi')}`
+    )
     .join(', ');
 
   const slotHindi =
-    mealSlot === 'breakfast' ? 'ब्रेकफास्ट' : mealSlot === 'lunch' ? 'लंच' : 'डिनर';
+    mealSlot === 'breakfast' ? 'नाश्ता' : mealSlot === 'lunch' ? 'लंच' : 'डिनर';
 
   const prompt = `
 You are a kitchen dispatch voice synthesizer.
@@ -276,7 +281,13 @@ STRICT RULES:
   }
 
   // Resilient fallback operational script if AI quota delay occurs
-  const topItems = forecastItems.slice(0, 3).map((i) => `${i.predicted_qty} ${i.item_name}`).join(', ');
+  const topItems = forecastItems
+    .slice(0, 3)
+    .map(
+      (i) =>
+        `${i.predicted_qty} ${getLocalizedUnit(i.unit, 'hi')} ${getLocalizedItemName(i.item_name, 'hi')}`
+    )
+    .join(', ');
   const reasonText = dynamicReason ? ` ${dynamicReason}` : '';
   return `${slotHindi}: ${topItems}।${reasonText}`;
 }
@@ -462,15 +473,5 @@ Rules:
     }
   }
 
-  // Graceful fallback if OCR fails
-  return {
-    vendor_name: 'Mandi Vegetable Vendor',
-    bill_date: new Date().toISOString().split('T')[0],
-    items: [
-      { item_name: 'Onions (Piyaz)', quantity: 20, unit: 'kg', rate: 35, row_total: 700 },
-      { item_name: 'Tomatoes (Tamatar)', quantity: 15, unit: 'kg', rate: 40, row_total: 600 },
-      { item_name: 'Ginger Garlic', quantity: 3, unit: 'kg', rate: 120, row_total: 360 }
-    ],
-    total_amount: 1660
-  };
+  throw new Error('Gemini OCR could not extract receipt items from image');
 }

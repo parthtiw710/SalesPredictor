@@ -1,6 +1,5 @@
-const CACHE_NAME = 'salespredicter-v2';
+const CACHE_NAME = 'salespredicter-v3';
 const STATIC_ASSETS = [
-  '/',
   '/icon-192.png',
   '/icon-512.png'
 ];
@@ -34,32 +33,36 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. Never intercept non-GET requests (POST, PUT, DELETE) - pass directly to network
+  // 1. Never intercept non-GET requests (POST, PUT, DELETE)
   if (event.request.method !== 'GET') {
     return;
   }
 
-  // 2. Never intercept Next.js API endpoints - let them run on the server via network
+  // 2. Never intercept Next.js API endpoints
   if (url.pathname.startsWith('/api/')) {
     return;
   }
 
-  // 3. Static assets & HTML pages: Stale-while-revalidate
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request)
+  // 3. HTML Navigation: Network-first to always serve fresh localized app
+  if (event.request.mode === 'navigate' || url.pathname === '/') {
+    event.respondWith(
+      fetch(event.request)
         .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && event.request.method === 'GET') {
-            const responseClone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseClone);
-            });
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
           return networkResponse;
         })
-        .catch(() => cached);
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
 
-      return cached || fetchPromise;
+  // 4. Static assets: Cache-first with network background revalidation
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      return cached || fetch(event.request);
     })
   );
 });

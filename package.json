@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "seed": "node scripts/upload_to_bigquery.js",
     "lint": "eslint"
   },
   "dependencies": {

@@ -53,6 +53,26 @@ const DEFAULT_OUTLETS: OutletRecord[] = [
     chef_name: 'Chef Vikram Singh',
     city: 'Delhi',
     active: true
+  },
+  {
+    kitchen_id: 'kitchen_c',
+    kitchen_name: 'Bangalore South Kitchens',
+    outlet_id: 'outlet_ca',
+    outlet_name: 'Indiranagar Cloud Hub',
+    join_code: 'KITCH-CA',
+    chef_name: 'Chef Priya Nair',
+    city: 'Bengaluru',
+    active: true
+  },
+  {
+    kitchen_id: 'kitchen_d',
+    kitchen_name: 'Mumbai West Cloud Hub',
+    outlet_id: 'outlet_da',
+    outlet_name: 'Bandra West Kitchen',
+    join_code: 'KITCH-DA',
+    chef_name: 'Chef Farhan Khan',
+    city: 'Mumbai',
+    active: true
   }
 ];
 
